@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Driver Tracker PWA</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#00e676">
+<style>
+body { font-family: Arial; text-align:center; background:#121212; color:white; padding:20px; }
+h1 { color:#00e676; }
+input, button { padding:10px; margin:5px; border-radius:8px; border:none; font-size:16px; }
+button { background:#00e676; cursor:pointer; }
+.status { margin-top:20px; color:#ccc; }
+</style>
+</head>
+<body>
+<h1> Smart Vehicle Tracker</h1>
+<input type="text" id="vehicleId" placeholder="Vehicle ID"><br>
+<button id="startBtn">Start Tracking</button>
+<button id="stopBtn">Stop Tracking</button>
+<div class="status" id="status">Status: Idle</div>
+
+<script type="module">
+// Firebase Config
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+import { getDatabase, ref, update } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCNNNQqwowO4OuxW2yjKvMpI-edMolKMy0",
+  authDomain: "smart-veichle-tracker.firebaseapp.com",
+  projectId: "smart-veichle-tracker",
+  storageBucket: "smart-veichle-tracker.firebasestorage.app",
+  messagingSenderId: "384592713965",
+  appId: "1:384592713965:web:5a530662a268c4096594e4"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+let tracking=false, watchId=null;
+let lastLat=null, lastLon=null, totalKm=0, maxSpeed=0, speedSum=0, speedCount=0;
+
+function calcDistance(lat1, lon1, lat2, lon2){
+  const R=6371; 
+  const dLat=(lat2-lat1)*Math.PI/180; 
+  const dLon=(lon2-lon1)*Math.PI/180;
+  const a=Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R*(2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+}
+
+document.getElementById("startBtn").onclick = ()=>{
+  const vehicleId=document.getElementById("vehicleId").value.trim();
+  if(!vehicleId) return alert("Enter Vehicle ID");
+  tracking=true; 
+  document.getElementById("status").innerText="Tracking started...";
+
+  watchId=navigator.geolocation.watchPosition(async pos=>{
+    const {latitude, longitude, speed}=pos.coords;
+    const spd = speed ? (speed*3.6).toFixed(1) : 0;
+    if(lastLat && lastLon) totalKm += calcDistance(lastLat,lastLon,latitude,longitude);
+    lastLat=latitude; lastLon=longitude;
+    maxSpeed=Math.max(maxSpeed, spd);
+    speedSum += parseFloat(spd); speedCount++;
+    const avgSpeed = (speedSum/speedCount).toFixed(1);
+
+    await update(ref(db,"vehicles/"+vehicleId),{
+      last:{lat:latitude,lon:longitude,speed:spd,timestamp:Date.now()},
+      stats:{total_km:totalKm.toFixed(2),avg_kmh:avgSpeed,max_kmh:maxSpeed.toFixed(1)}
+    });
+  },err=>console.error(err),{enableHighAccuracy:true});
+};
+
+document.getElementById("stopBtn").onclick=()=>{
+  if(watchId) navigator.geolocation.clearWatch(watchId);
+  tracking=false;
+  document.getElementById("status").innerText="Tracking stopped.";
+};
+
+// --- Inline Service Worker ---
+if('serviceWorker' in navigator){
+  const swCode = `
+    self.addEventListener('install', e => {
+      e.waitUntil(caches.open('tracker-v1').then(cache => cache.addAll([
+        '/driver-tracker.html',
+        '/manifest.json',
+        '/icon-192.png',
+        '/icon-512.png'
+      ])));
+    });
+    self.addEventListener('fetch', e => {
+      e.respondWith(caches.match(e.request).then(resp => resp || fetch(e.request)));
+    });
+    self.addEventListener('activate', e => {
+      e.waitUntil(self.clients.claim());
+    });
+  `;
+  const blob = new Blob([swCode], {type:'application/javascript'});
+  const swUrl = URL.createObjectURL(blob);
+  navigator.serviceWorker.register(swUrl)
+    .then(()=>console.log("Inline Service Worker Registered"))
+    .catch(err=>console.error(err));
+}
+</script>
+</body>
+</html>
