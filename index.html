@@ -1,106 +1,202 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="bn">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Driver Tracker PWA</title>
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#00e676">
+<title>🚗 Ultimate Vehicle Tracker</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
-body { font-family: Arial; text-align:center; background:#121212; color:white; padding:20px; }
-h1 { color:#00e676; }
-input, button { padding:10px; margin:5px; border-radius:8px; border:none; font-size:16px; }
-button { background:#00e676; cursor:pointer; }
-.status { margin-top:20px; color:#ccc; }
+  body {
+    margin: 0;
+    font-family: "Poppins", sans-serif;
+    background: #0a0a0a;
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+
+  header {
+    text-align: center;
+    padding: 10px;
+    background: linear-gradient(90deg, #2e3192, #1bffff);
+    font-size: 1.3em;
+    font-weight: bold;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+  }
+
+  #info {
+    padding: 8px;
+    background: #111;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-around;
+    text-align: center;
+    font-size: 0.9em;
+    border-bottom: 1px solid #222;
+  }
+
+  .value { color: #00ffcc; font-weight: bold; }
+
+  #controls { padding: 8px; background: #111; border-bottom: 1px solid #222; display:flex; justify-content:center; align-items:center; }
+
+  #map { flex: 1; width: 100%; }
+
+  #speedChartContainer { background: #111; padding: 10px; border-top: 1px solid #222; }
+
+  canvas { width: 100%; height: 180px; }
+
+  label { font-size: 0.95em; margin-left: 6px; }
+
+  .leaflet-control-attribution { display: none; }
 </style>
 </head>
 <body>
-<h1> Smart Vehicle Tracker</h1>
-<input type="text" id="vehicleId" placeholder="Vehicle ID"><br>
-<button id="startBtn">Start Tracking</button>
-<button id="stopBtn">Stop Tracking</button>
-<div class="status" id="status">Status: Idle</div>
+<header>🚗 Ultimate Vehicle Tracker</header>
 
-<script type="module">
-// Firebase Config
-import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
-import { getDatabase, ref, update } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+<div id="info">
+  <div>Speed: <span id="speed" class="value">0</span> km/h</div>
+  <div>Max: <span id="maxSpeed" class="value">0</span> km/h</div>
+  <div>Avg: <span id="avgSpeed" class="value">0</span> km/h</div>
+  <div>Distance: <span id="distance" class="value">0</span> km</div>
+  <div>Time: <span id="timeElapsed" class="value">00:00:00</span></div>
+  <div>Lat: <span id="lat" class="value">--</span></div>
+  <div>Lng: <span id="lng" class="value">--</span></div>
+</div>
 
-const firebaseConfig = {
-  apiKey: "AIzaSyCNNNQqwowO4OuxW2yjKvMpI-edMolKMy0",
-  authDomain: "smart-veichle-tracker.firebaseapp.com",
-  projectId: "smart-veichle-tracker",
-  storageBucket: "smart-veichle-tracker.firebasestorage.app",
-  messagingSenderId: "384592713965",
-  appId: "1:384592713965:web:5a530662a268c4096594e4"
-};
+<div id="controls">
+  <input type="checkbox" id="autoCenter" checked>
+  <label for="autoCenter">Auto Center Map</label>
+</div>
 
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
+<div id="map"></div>
 
-let tracking=false, watchId=null;
-let lastLat=null, lastLon=null, totalKm=0, maxSpeed=0, speedSum=0, speedCount=0;
+<div id="speedChartContainer">
+  <canvas id="speedChart"></canvas>
+</div>
 
-function calcDistance(lat1, lon1, lat2, lon2){
-  const R=6371; 
-  const dLat=(lat2-lat1)*Math.PI/180; 
-  const dLon=(lon2-lon1)*Math.PI/180;
-  const a=Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
-  return R*(2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
-}
+<!-- Alert Sound -->
+<audio id="alertSound" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" preload="auto"></audio>
 
-document.getElementById("startBtn").onclick = ()=>{
-  const vehicleId=document.getElementById("vehicleId").value.trim();
-  if(!vehicleId) return alert("Enter Vehicle ID");
-  tracking=true; 
-  document.getElementById("status").innerText="Tracking started...";
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+  // Map setup
+  let map = L.map('map').setView([23.8103, 90.4125], 15);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
-  watchId=navigator.geolocation.watchPosition(async pos=>{
-    const {latitude, longitude, speed}=pos.coords;
-    const spd = speed ? (speed*3.6).toFixed(1) : 0;
-    if(lastLat && lastLon) totalKm += calcDistance(lastLat,lastLon,latitude,longitude);
-    lastLat=latitude; lastLon=longitude;
-    maxSpeed=Math.max(maxSpeed, spd);
-    speedSum += parseFloat(spd); speedCount++;
-    const avgSpeed = (speedSum/speedCount).toFixed(1);
+  // Custom Car Icon
+  let carIcon = L.icon({
+    iconUrl: 'https://cdn-icons-png.flaticon.com/512/743/743131.png', // Replace with realistic car icon URL if needed
+    iconSize: [50, 50],
+    iconAnchor: [25, 25]
+  });
 
-    await update(ref(db,"vehicles/"+vehicleId),{
-      last:{lat:latitude,lon:longitude,speed:spd,timestamp:Date.now()},
-      stats:{total_km:totalKm.toFixed(2),avg_kmh:avgSpeed,max_kmh:maxSpeed.toFixed(1)}
-    });
-  },err=>console.error(err),{enableHighAccuracy:true});
-};
+  let marker = L.marker([23.8103, 90.4125], {icon: carIcon}).addTo(map);
+  let pathCoords = [];
+  let polyline = L.polyline(pathCoords, {color: '#00ffcc', weight: 5}).addTo(map);
 
-document.getElementById("stopBtn").onclick=()=>{
-  if(watchId) navigator.geolocation.clearWatch(watchId);
-  tracking=false;
-  document.getElementById("status").innerText="Tracking stopped.";
-};
+  // Tracking data
+  let lastLatLng = null;
+  let autoCenter = true;
+  let alertPlaying = false;
+  let speedLimit = 60;
+  let speedSamples = [];
+  let totalDistance = 0;
+  let maxSpeed = 0;
+  let startTime = Date.now();
 
-// --- Inline Service Worker ---
-if('serviceWorker' in navigator){
-  const swCode = `
-    self.addEventListener('install', e => {
-      e.waitUntil(caches.open('tracker-v1').then(cache => cache.addAll([
-        '/driver-tracker.html',
-        '/manifest.json',
-        '/icon-192.png',
-        '/icon-512.png'
-      ])));
-    });
-    self.addEventListener('fetch', e => {
-      e.respondWith(caches.match(e.request).then(resp => resp || fetch(e.request)));
-    });
-    self.addEventListener('activate', e => {
-      e.waitUntil(self.clients.claim());
-    });
-  `;
-  const blob = new Blob([swCode], {type:'application/javascript'});
-  const swUrl = URL.createObjectURL(blob);
-  navigator.serviceWorker.register(swUrl)
-    .then(()=>console.log("Inline Service Worker Registered"))
-    .catch(err=>console.error(err));
-}
+  document.getElementById("autoCenter").addEventListener("change", (e) => autoCenter = e.target.checked);
+
+  // Chart.js setup
+  const ctx = document.getElementById('speedChart').getContext('2d');
+  const speedChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: [], datasets: [{ label: 'Speed (km/h)', data: [], borderColor: '#00ffcc', backgroundColor: 'rgba(0,255,200,0.1)', tension:0.3 }] },
+    options: { responsive:true, plugins:{legend:{labels:{color:'#fff'}}}, scales:{x:{ticks:{color:'#aaa'}},y:{ticks:{color:'#aaa'},beginAtZero:true}} }
+  });
+
+  // Live tracking
+  if (navigator.geolocation) {
+    navigator.geolocation.watchPosition(updatePosition, showError, { enableHighAccuracy:true, maximumAge:0, timeout:10000 });
+  } else { alert("GPS not supported."); }
+
+  function updatePosition(pos) {
+    const lat = pos.coords.latitude;
+    const lng = pos.coords.longitude;
+    const speed = (pos.coords.speed || 0)*3.6; // km/h
+    const timestamp = new Date().toLocaleTimeString();
+
+    // Update info text
+    document.getElementById('lat').textContent = lat.toFixed(5);
+    document.getElementById('lng').textContent = lng.toFixed(5);
+    document.getElementById('speed').textContent = speed.toFixed(1);
+
+    // Update Max & Avg
+    speedSamples.push(speed);
+    maxSpeed = Math.max(maxSpeed, speed);
+    let avgSpeed = speedSamples.reduce((a,b)=>a+b,0)/speedSamples.length;
+    document.getElementById('maxSpeed').textContent = maxSpeed.toFixed(1);
+    document.getElementById('avgSpeed').textContent = avgSpeed.toFixed(1);
+
+    // Distance
+    const newLatLng = L.latLng(lat, lng);
+    if(lastLatLng) totalDistance += lastLatLng.distanceTo(newLatLng)/1000; // km
+    document.getElementById('distance').textContent = totalDistance.toFixed(3);
+
+    // Tracking time
+    let elapsedMs = Date.now()-startTime;
+    document.getElementById('timeElapsed').textContent = msToTime(elapsedMs);
+
+    // Update marker & trail
+    pathCoords.push(newLatLng);
+    polyline.setLatLngs(pathCoords);
+
+    if(lastLatLng){
+      const bearing = getBearing(lastLatLng.lat, lastLatLng.lng, lat, lng);
+      marker._icon.style.transform = `rotate(${bearing}deg)`;
+    }
+    marker.setLatLng(newLatLng);
+    if(autoCenter) map.panTo(newLatLng, {animate:true, duration:0.5});
+
+    lastLatLng = newLatLng;
+
+    // Speed alert
+    const sound = document.getElementById("alertSound");
+    if(speed > speedLimit && !alertPlaying){ alertPlaying=true; sound.play(); }
+    else if(speed <= speedLimit && alertPlaying){ alertPlaying=false; sound.pause(); sound.currentTime=0; }
+
+    // Update chart
+    speedChart.data.labels.push(timestamp);
+    speedChart.data.datasets[0].data.push(speed.toFixed(1));
+    if(speedChart.data.labels.length > 20){
+      speedChart.data.labels.shift();
+      speedChart.data.datasets[0].data.shift();
+    }
+    speedChart.update();
+  }
+
+  function msToTime(ms){
+    const s = Math.floor(ms/1000)%60, m = Math.floor(ms/60000)%60, h = Math.floor(ms/3600000);
+    return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+  }
+
+  function showError(e){
+    switch(e.code){
+      case e.PERMISSION_DENIED: alert("Location permission denied"); break;
+      case e.POSITION_UNAVAILABLE: alert("Location unavailable"); break;
+      case e.TIMEOUT: alert("Location request timed out"); break;
+      default: alert("Unknown error");
+    }
+  }
+
+  function getBearing(lat1, lon1, lat2, lon2){
+    const φ1 = lat1*Math.PI/180, φ2 = lat2*Math.PI/180, Δλ = (lon2-lon1)*Math.PI/180;
+    const y = Math.sin(Δλ)*Math.cos(φ2);
+    const x = Math.cos(φ1)*Math.sin(φ2) - Math.sin(φ1)*Math.cos(φ2)*Math.cos(Δλ);
+    const θ = Math.atan2(y,x);
+    return (θ*180/Math.PI + 360)%360;
+  }
 </script>
 </body>
 </html>
