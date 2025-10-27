@@ -1,203 +1,219 @@
 <!DOCTYPE html>
 <html lang="bn">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🚗 Ultimate Vehicle Tracker</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fleet Navigation Ultimate – by Sobuj</title>
+
+<!-- Leaflet CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
+
 <style>
   body {
     margin: 0;
     font-family: "Poppins", sans-serif;
-    background: #0a0a0a;
-    color: #fff;
-    display: flex;
-    flex-direction: column;
+    background: #f3f6fa;
+  }
+
+  #map {
     height: 100vh;
+    width: 100%;
   }
 
-  header {
+  .dashboard {
+    position: fixed;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: white;
+    padding: 10px 15px;
+    border-radius: 15px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+    z-index: 1000;
     text-align: center;
-    padding: 10px;
-    background: linear-gradient(90deg, #2e3192, #1bffff);
-    font-size: 1.3em;
-    font-weight: bold;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.3);
   }
 
-  #info {
-    padding: 8px;
-    background: #111;
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-around;
+  .dashboard input {
+    width: 200px;
+    padding: 6px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    outline: none;
+  }
+
+  .dashboard button {
+    background: #007bff;
+    color: white;
+    border: none;
+    padding: 7px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+
+  .stats {
+    position: fixed;
+    bottom: 90px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(255,255,255,0.95);
+    border-radius: 15px;
+    padding: 10px 20px;
+    font-size: 14px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+    z-index: 1000;
     text-align: center;
-    font-size: 0.9em;
-    border-bottom: 1px solid #222;
+    line-height: 1.6em;
   }
 
-  .value { color: #00ffcc; font-weight: bold; }
-
-  #controls { padding: 8px; background: #111; border-bottom: 1px solid #222; display:flex; justify-content:center; align-items:center; }
-
-  #map { flex: 1; width: 100%; }
-
-  #speedChartContainer { background: #111; padding: 10px; border-top: 1px solid #222; }
-
-  canvas { width: 100%; height: 180px; }
-
-  label { font-size: 0.95em; margin-left: 6px; }
+  .direction-box {
+    position: fixed;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #ffffff;
+    border-radius: 12px;
+    padding: 10px 15px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.25);
+    z-index: 1000;
+    text-align: center;
+    font-weight: 600;
+    width: 90%;
+  }
 
   .leaflet-control-attribution { display: none; }
 </style>
 </head>
 <body>
-<header>🚗 Ultimate Vehicle Tracker</header>
 
-<div id="info">
-  <div>Speed: <span id="speed" class="value">0</span> km/h</div>
-  <div>Max: <span id="maxSpeed" class="value">0</span> km/h</div>
-  <div>Avg: <span id="avgSpeed" class="value">0</span> km/h</div>
-  <div>Distance: <span id="distance" class="value">0</span> km</div>
-  <div>Time: <span id="timeElapsed" class="value">00:00:00</span></div>
-  <div>Lat: <span id="lat" class="value">--</span></div>
-  <div>Lng: <span id="lng" class="value">--</span></div>
-</div>
-
-<div id="controls">
-  <input type="checkbox" id="autoCenter" checked>
-  <label for="autoCenter">Auto Center Map</label>
+<div class="dashboard">
+  <input id="destination" type="text" placeholder="Enter destination..." />
+  <button onclick="setDestination()">Go</button>
 </div>
 
 <div id="map"></div>
 
-<div id="speedChartContainer">
-  <canvas id="speedChart"></canvas>
+<div class="stats" id="stats">
+  🚀 Speed: <span id="speed">0</span> km/h | 
+  🧭 Avg: <span id="avg">0</span> | 
+  ⚡ Max: <span id="max">0</span><br>
+  📏 Distance: <span id="dist">0</span> km | 
+  ⏱ Time: <span id="time">0:00</span>
 </div>
 
-<!-- Alert Sound -->
-<audio id="alertSound" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" preload="auto"></audio>
+<div id="direction" class="direction-box">📍 Waiting for location...</div>
 
+<!-- JS Libraries -->
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
+
 <script>
-  // Map setup
-  let map = L.map('map').setView([23.8103, 90.4125], 15);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+  let map, marker, routeControl;
+  const carIconUrl = "https://i.postimg.cc/3xn9Sd08/car.png";
+  const carIcon = L.icon({ iconUrl: carIconUrl, iconSize: [45,45], iconAnchor:[22,22] });
+  let startTime = Date.now(), totalDistance = 0, lastPos = null, speedList = [], maxSpeed = 0;
+  let userLatLng = null;
 
-  // Custom Car Icon
-  let carIcon = L.icon({
-    iconUrl: 'https://i.postimg.cc/3xn9Sd08/car.png', // Replace with realistic car icon URL if needed
-    iconSize: [50, 50],
-    iconAnchor: [25, 25]
-  });
+  // Initialize Map
+  map = L.map('map').setView([23.8103, 90.4125], 13);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
 
-  let marker = L.marker([23.8103, 90.4125], {icon: carIcon}).addTo(map);
-  let pathCoords = [];
-  let polyline = L.polyline(pathCoords, {color: '#00ffcc', weight: 5}).addTo(map);
+  // Fake traffic layer (simulated congestion areas)
+  const trafficLayer = L.layerGroup([
+    L.circle([23.8103, 90.415], {radius: 400, color:"red", fillOpacity:0.3}),
+    L.circle([23.818, 90.41], {radius: 300, color:"orange", fillOpacity:0.3}),
+    L.circle([23.805, 90.425], {radius: 300, color:"green", fillOpacity:0.2})
+  ]).addTo(map);
 
-  // Tracking data
-  let lastLatLng = null;
-  let autoCenter = true;
-  let alertPlaying = false;
-  let speedLimit = 60;
-  let speedSamples = [];
-  let totalDistance = 0;
-  let maxSpeed = 0;
-  let startTime = Date.now();
+  // Voice setup
+  function speak(text) {
+    if (!window.speechSynthesis) return;
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = "en-US";
+    window.speechSynthesis.speak(utter);
+  }
 
-  document.getElementById("autoCenter").addEventListener("change", (e) => autoCenter = e.target.checked);
-
-  // Chart.js setup
-  const ctx = document.getElementById('speedChart').getContext('2d');
-  const speedChart = new Chart(ctx, {
-    type: 'line',
-    data: { labels: [], datasets: [{ label: 'Speed (km/h)', data: [], borderColor: '#00ffcc', backgroundColor: 'rgba(0,255,200,0.1)', tension:0.3 }] },
-    options: { responsive:true, plugins:{legend:{labels:{color:'#fff'}}}, scales:{x:{ticks:{color:'#aaa'}},y:{ticks:{color:'#aaa'},beginAtZero:true}} }
-  });
-
-  // Live tracking
+  // Geolocation live update
   if (navigator.geolocation) {
-    navigator.geolocation.watchPosition(updatePosition, showError, { enableHighAccuracy:true, maximumAge:0, timeout:10000 });
-  } else { alert("GPS not supported."); }
+    navigator.geolocation.watchPosition(updatePosition, err => {
+      document.getElementById("direction").innerHTML = "❌ Location unavailable!";
+    }, { enableHighAccuracy:true });
+  }
 
   function updatePosition(pos) {
-    const lat = pos.coords.latitude;
-    const lng = pos.coords.longitude;
-    const speed = (pos.coords.speed || 0)*3.6; // km/h
-    const timestamp = new Date().toLocaleTimeString();
+    const lat = pos.coords.latitude, lon = pos.coords.longitude;
+    userLatLng = [lat, lon];
 
-    // Update info text
-    document.getElementById('lat').textContent = lat.toFixed(5);
-    document.getElementById('lng').textContent = lng.toFixed(5);
-    document.getElementById('speed').textContent = speed.toFixed(1);
+    if (!marker) marker = L.marker(userLatLng, {icon:carIcon}).addTo(map);
+    else marker.setLatLng(userLatLng);
 
-    // Update Max & Avg
-    speedSamples.push(speed);
-    maxSpeed = Math.max(maxSpeed, speed);
-    let avgSpeed = speedSamples.reduce((a,b)=>a+b,0)/speedSamples.length;
-    document.getElementById('maxSpeed').textContent = maxSpeed.toFixed(1);
-    document.getElementById('avgSpeed').textContent = avgSpeed.toFixed(1);
+    map.setView(userLatLng, 16);
 
-    // Distance
-    const newLatLng = L.latLng(lat, lng);
-    if(lastLatLng) totalDistance += lastLatLng.distanceTo(newLatLng)/1000; // km
-    document.getElementById('distance').textContent = totalDistance.toFixed(3);
-
-    // Tracking time
-    let elapsedMs = Date.now()-startTime;
-    document.getElementById('timeElapsed').textContent = msToTime(elapsedMs);
-
-    // Update marker & trail
-    pathCoords.push(newLatLng);
-    polyline.setLatLngs(pathCoords);
-
-    if(lastLatLng){
-      const bearing = getBearing(lastLatLng.lat, lastLatLng.lng, lat, lng);
-      marker._icon.style.transform = `rotate(${bearing}deg)`;
+    // Distance calculation
+    if (lastPos) {
+      const dist = map.distance(lastPos, userLatLng) / 1000;
+      totalDistance += dist;
     }
-    marker.setLatLng(newLatLng);
-    if(autoCenter) map.panTo(newLatLng, {animate:true, duration:0.5});
+    lastPos = userLatLng;
 
-    lastLatLng = newLatLng;
+    // Speed (m/s to km/h)
+    const speed = pos.coords.speed ? (pos.coords.speed * 3.6).toFixed(1) : 0;
+    if (speed > 0) speedList.push(parseFloat(speed));
+    if (speed > maxSpeed) maxSpeed = speed;
 
-    // Speed alert
-    const sound = document.getElementById("alertSound");
-    if(speed > speedLimit && !alertPlaying){ alertPlaying=true; sound.play(); }
-    else if(speed <= speedLimit && alertPlaying){ alertPlaying=false; sound.pause(); sound.currentTime=0; }
+    const avgSpeed = speedList.length ? 
+      (speedList.reduce((a,b)=>a+b,0)/speedList.length).toFixed(1) : 0;
+    const elapsed = Math.floor((Date.now() - startTime)/1000);
+    const minutes = Math.floor(elapsed/60);
+    const seconds = elapsed % 60;
 
-    // Update chart
-    speedChart.data.labels.push(timestamp);
-    speedChart.data.datasets[0].data.push(speed.toFixed(1));
-    if(speedChart.data.labels.length > 20){
-      speedChart.data.labels.shift();
-      speedChart.data.datasets[0].data.shift();
-    }
-    speedChart.update();
+    // Update stats
+    document.getElementById("speed").innerText = speed;
+    document.getElementById("avg").innerText = avgSpeed;
+    document.getElementById("max").innerText = maxSpeed;
+    document.getElementById("dist").innerText = totalDistance.toFixed(2);
+    document.getElementById("time").innerText = `${minutes}:${seconds.toString().padStart(2,'0')}`;
+
+    document.getElementById("direction").innerHTML = `📍 Lat: ${lat.toFixed(5)}, Lon: ${lon.toFixed(5)}`;
   }
 
-  function msToTime(ms){
-    const s = Math.floor(ms/1000)%60, m = Math.floor(ms/60000)%60, h = Math.floor(ms/3600000);
-    return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
-  }
-
-  function showError(e){
-    switch(e.code){
-      case e.PERMISSION_DENIED: alert("Location permission denied"); break;
-      case e.POSITION_UNAVAILABLE: alert("Location unavailable"); break;
-      case e.TIMEOUT: alert("Location request timed out"); break;
-      default: alert("Unknown error");
+  // Destination routing
+  function setDestination() {
+    const place = document.getElementById("destination").value.trim();
+    if (!place || !userLatLng) {
+      alert("Enter a destination & enable GPS.");
+      return;
     }
+
+    fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${place}`)
+      .then(res => res.json())
+      .then(data => {
+        if (!data.length) return alert("Destination not found!");
+        const destLat = data[0].lat, destLon = data[0].lon;
+        showRoute(userLatLng, [destLat, destLon]);
+      });
   }
 
-  function getBearing(lat1, lon1, lat2, lon2){
-    const φ1 = lat1*Math.PI/180, φ2 = lat2*Math.PI/180, Δλ = (lon2-lon1)*Math.PI/180;
-    const y = Math.sin(Δλ)*Math.cos(φ2);
-    const x = Math.cos(φ1)*Math.sin(φ2) - Math.sin(φ1)*Math.cos(φ2)*Math.cos(Δλ);
-    const θ = Math.atan2(y,x);
-    return (θ*180/Math.PI + 360)%360;
+  function showRoute(start, end) {
+    if (routeControl) map.removeControl(routeControl);
+    routeControl = L.Routing.control({
+      waypoints: [L.latLng(start[0], start[1]), L.latLng(end[0], end[1])],
+      lineOptions: { styles:[{color:'blue', opacity:0.8, weight:6}] },
+      addWaypoints: false,
+      routeWhileDragging: false,
+      showAlternatives: false,
+      createMarker: () => null
+    })
+    .on('routesfound', e => {
+      const summary = e.routes[0].summary;
+      const dist = (summary.totalDistance/1000).toFixed(2);
+      const time = (summary.totalTime/60).toFixed(0);
+      document.getElementById("direction").innerHTML =
+        `🛣 Route: ${dist} km, ⏱ ${time} min<br>Follow blue line`;
+      speak(`Route found. Distance ${dist} kilometers. Estimated time ${time} minutes.`);
+    })
+    .addTo(map);
   }
 </script>
 </body>
 </html>
-
