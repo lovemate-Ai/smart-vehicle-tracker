@@ -1,227 +1,202 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="bn">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Smart Navigator – Pro+ Edition</title>
+<title>Smart Navigator – AI + Fuel Ultra Edition</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
+
 <style>
-  body {
-    font-family: "Poppins", sans-serif;
-    margin: 0;
-    padding: 0;
-    background: linear-gradient(to bottom, #101010, #1a1a1a);
-    color: #fff;
-    overflow: hidden;
-  }
-  header {
-    text-align: center;
-    padding: 12px;
-    background: #111;
-    font-size: 20px;
-    font-weight: bold;
-  }
-  #map {
-    width: 100%;
-    height: 55vh;
-  }
-  .stats {
-    display: flex;
-    justify-content: space-around;
-    padding: 10px;
-    background: #222;
-    font-size: 14px;
-  }
-  .stats div {
-    text-align: center;
-  }
-  #status {
-    text-align: center;
-    margin: 8px;
-    font-weight: bold;
-  }
-  #controls {
-    display: flex;
-    justify-content: space-around;
-    padding: 8px;
-  }
-  button {
-    background: #0b84ff;
-    border: none;
-    color: white;
-    padding: 10px 14px;
-    border-radius: 10px;
-    cursor: pointer;
-    font-weight: bold;
-    transition: 0.3s;
-  }
-  button:hover {
-    background: #006fe6;
-  }
-  canvas {
-    width: 100%;
-    height: 100px;
-    background: #000;
-  }
+body{margin:0;font-family:'Poppins',sans-serif;background:#111;color:#fff;overflow:hidden}
+header{background:#000;color:#0ff;text-align:center;padding:10px;font-size:20px;font-weight:bold}
+#map{height:50vh;width:100%}
+.stats{display:flex;justify-content:space-around;background:#1a1a1a;padding:10px;font-size:13px;flex-wrap:wrap}
+.stats div{text-align:center;margin:5px}
+#status{text-align:center;font-weight:bold;color:lime;padding:5px}
+#controls{display:flex;justify-content:space-around;padding:10px;flex-wrap:wrap}
+input,button{padding:8px;border-radius:10px;border:none;outline:none;font-weight:bold;margin:3px}
+button{background:#0b84ff;color:white}
+button:hover{background:#0070e0}
+#fuelCost{color:#ff0;font-weight:bold}
 </style>
 </head>
 <body>
 
-<header>🚗 Smart Navigator – Pro+ Edition</header>
+<header>🚘 Smart Navigator – AI + Fuel Ultra Edition</header>
 
 <div id="map"></div>
 
 <div class="stats">
   <div>Speed: <span id="speed">0.000</span> km/h</div>
   <div>Distance: <span id="distance">0.000</span> km</div>
-  <div>Avg Speed: <span id="avgSpeed">0.000</span> km/h</div>
-  <div>Max Speed: <span id="maxSpeed">0.000</span> km/h</div>
+  <div>ETA: <span id="eta">--:--</span></div>
+  <div>Fuel Cost: <span id="fuelCost">0.00</span> ৳</div>
 </div>
 
 <div id="status">🟢 Efficient Driving</div>
 
-<canvas id="speedGraph"></canvas>
-
 <div id="controls">
-  <button id="resetBtn">Reset</button>
-  <button id="toggleMode">🌙 Toggle Mode</button>
+  <input type="text" id="destination" placeholder="গন্তব্য (নাম বা lat,long)" />
+  <input type="number" id="mileage" placeholder="গাড়ির Mileage km/l" />
+  <input type="number" id="fuelPrice" placeholder="Fuel Price /liter ৳" />
+  <button id="searchBtn">🔍 Search</button>
+  <button id="resetBtn">🔄 Reset</button>
 </div>
 
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
+
 <script>
-let username = prompt("আপনার নাম লিখুন:");
-if(!username) username = "Driver";
+let username = prompt("আপনার নাম লিখুন:") || "Driver";
 
-let lastLat = null, lastLng = null;
-let totalDistance = 0, totalSpeed = 0, count = 0, maxSpeed = 0;
-let map, marker, destMarker, path;
-let graphCtx = document.getElementById("speedGraph").getContext("2d");
-let speedHistory = [];
-let darkMode = true;
-let speedLimit = 60; // Default Speed Limit
-let warningAudio = new SpeechSynthesisUtterance();
-warningAudio.lang = "bn-BD";
-let efficiencyMode = document.getElementById("status");
+let map, marker, destMarker, routeControl;
+let totalDist=0,maxSpeed=0,count=0,smoothSpeed=0,lastLat=null,lastLng=null;
+let lastInstruction="";
+const speedText=document.getElementById("speed");
+const distanceText=document.getElementById("distance");
+const etaText=document.getElementById("eta");
+const statusText=document.getElementById("status");
+const fuelCostText=document.getElementById("fuelCost");
 
-// Initialize map
-function initMap(lat, lng) {
-  map = L.map('map').setView([lat, lng], 16);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
+function speak(text){
+  let msg=new SpeechSynthesisUtterance(text);
+  msg.lang="bn-BD";
+  window.speechSynthesis.speak(msg);
+}
+
+function initMap(lat,lng){
+  map=L.map('map').setView([lat,lng],15);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+  marker=L.marker([lat,lng]).addTo(map);
+  map.on('click',e=>setDestination(e.latlng.lat,e.latlng.lng));
+}
+
+function setDestination(lat,lng){
+  if(destMarker) map.removeLayer(destMarker);
+  destMarker=L.marker([lat,lng]).addTo(map).bindPopup("গন্তব্য").openPopup();
+  if(routeControl) map.removeControl(routeControl);
+
+  routeControl=L.Routing.control({
+    waypoints:[L.latLng(lastLat,lastLng),L.latLng(lat,lng)],
+    lineOptions:{styles:[{color:'lime',weight:5}]},
+    createMarker:()=>null,
+    routeWhileDragging:false,
+    show:false
   }).addTo(map);
 
-  marker = L.marker([lat, lng]).addTo(map);
-
-  map.on('click', (e) => {
-    if(destMarker) map.removeLayer(destMarker);
-    destMarker = L.marker(e.latlng).addTo(map).bindPopup("গন্তব্য").openPopup();
-    alert("✅ গন্তব্য সেট হয়েছে!");
+  routeControl.on('routesfound',function(e){
+    let route=e.routes[0];
+    let eta=(route.summary.totalTime/60).toFixed(1);
+    let dist=(route.summary.totalDistance/1000).toFixed(2);
+    etaText.innerText=`${eta} min (${dist} km)`;
+    speak(`এই ${username}, ${dist} কিলোমিটার বাকি। আনুমানিক ${eta} মিনিট লাগবে।`);
+    updateFuelCost(dist);
+    stepByStepVoice(route.instructions || []);
   });
-
-  path = L.polyline([], { color: 'lime', weight: 4 }).addTo(map);
 }
 
-// Calculate distance
-function getDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat/2) ** 2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
-  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
-}
-
-// Update graph
-function drawGraph() {
-  graphCtx.clearRect(0, 0, graphCtx.canvas.width, graphCtx.canvas.height);
-  graphCtx.beginPath();
-  graphCtx.moveTo(0, 100 - speedHistory[0]);
-  for(let i=1;i<speedHistory.length;i++){
-    graphCtx.lineTo(i * (graphCtx.canvas.width / 60), 100 - speedHistory[i]);
+function stepByStepVoice(steps){
+  if(!steps.length) return;
+  let i=0;
+  function nextStep(){
+    if(i>=steps.length) return;
+    let text=steps[i].text||"";
+    if(text!==lastInstruction){
+      lastInstruction=text;
+      speak(text);
+    }
+    i++;
+    setTimeout(nextStep,8000);
   }
-  graphCtx.strokeStyle = "lime";
-  graphCtx.stroke();
+  nextStep();
 }
 
-// Update speed and distance
-function updateStats(position) {
-  const lat = position.coords.latitude;
-  const lng = position.coords.longitude;
-  const speed = (position.coords.speed || 0) * 3.6;
+function smoothValue(oldVal,newVal,factor=0.3){return oldVal+(newVal-oldVal)*factor;}
 
-  // GPS jump fix
-  if(speed > 250) return;
+function updateStats(pos){
+  const lat=pos.coords.latitude;
+  const lng=pos.coords.longitude;
+  let speed=(pos.coords.speed||0)*3.6;
+  smoothSpeed=smoothValue(smoothSpeed,speed); if(smoothSpeed<0) smoothSpeed=0;
 
-  if(lastLat !== null) {
-    const dist = getDistance(lastLat, lastLng, lat, lng);
-    if(dist < 1) totalDistance += dist;
+  if(lastLat){
+    let dist=getDistance(lastLat,lastLng,lat,lng);
+    if(dist<1) totalDist+=dist;
   }
+  lastLat=lat; lastLng=lng;
 
-  totalSpeed += speed;
-  count++;
-  if(speed > maxSpeed) maxSpeed = speed;
+  count++; if(smoothSpeed>maxSpeed) maxSpeed=smoothSpeed;
 
-  lastLat = lat;
-  lastLng = lng;
+  speedText.innerText=smoothSpeed.toFixed(3);
+  distanceText.innerText=totalDist.toFixed(3);
+  marker.setLatLng([lat,lng]);
+  map.setView([lat,lng]);
 
-  document.getElementById("speed").innerText = speed.toFixed(3);
-  document.getElementById("distance").innerText = totalDistance.toFixed(3);
-  document.getElementById("avgSpeed").innerText = (totalSpeed / count).toFixed(3);
-  document.getElementById("maxSpeed").innerText = maxSpeed.toFixed(3);
+  updateFuelCost(totalDist);
 
-  if(speed > speedLimit) {
-    warningAudio.text = `এই ${username}, গাড়ির স্পিড কমাও তাড়াতাড়ি কর!`;
-    window.speechSynthesis.speak(warningAudio);
-    efficiencyMode.innerText = "🔴 Over Speed!";
-    efficiencyMode.style.color = "red";
+  if(smoothSpeed>60){
+    speak(`এই ${username}, গাড়ির স্পিড কমাও!`);
+    statusText.innerText="🔴 Over Speed!";
+    statusText.style.color="red";
   } else {
-    efficiencyMode.innerText = "🟢 Efficient Driving";
-    efficiencyMode.style.color = "lime";
+    statusText.innerText="🟢 Efficient Driving";
+    statusText.style.color="lime";
   }
-
-  speedHistory.push(speed);
-  if(speedHistory.length > 60) speedHistory.shift();
-  drawGraph();
-
-  marker.setLatLng([lat, lng]);
-  path.addLatLng([lat, lng]);
-  map.setView([lat, lng]);
 }
 
-// Toggle Mode
-document.getElementById("toggleMode").onclick = () => {
-  darkMode = !darkMode;
-  document.body.style.background = darkMode
-    ? "linear-gradient(to bottom, #101010, #1a1a1a)"
-    : "linear-gradient(to bottom, #e0e0e0, #ffffff)";
-};
-
-// Reset Button
-document.getElementById("resetBtn").onclick = () => {
-  totalDistance = 0;
-  totalSpeed = 0;
-  count = 0;
-  maxSpeed = 0;
-  speedHistory = [];
-  document.getElementById("speed").innerText = "0.000";
-  document.getElementById("distance").innerText = "0.000";
-  document.getElementById("avgSpeed").innerText = "0.000";
-  document.getElementById("maxSpeed").innerText = "0.000";
-  efficiencyMode.innerText = "🟢 Efficient Driving";
-};
-
-// Get GPS
-if(navigator.geolocation) {
-  navigator.geolocation.watchPosition(updateStats, console.error, {
-    enableHighAccuracy: true,
-    maximumAge: 0,
-    timeout: 5000
-  });
-  navigator.geolocation.getCurrentPosition(pos => {
-    initMap(pos.coords.latitude, pos.coords.longitude);
-  });
-} else {
-  alert("GPS সাপোর্ট করে না এই ডিভাইসটি।");
+function updateFuelCost(dist){
+  const mileage=parseFloat(document.getElementById("mileage").value)||12;
+  const fuelPrice=parseFloat(document.getElementById("fuelPrice").value)||120;
+  const cost=(dist/mileage)*fuelPrice;
+  fuelCostText.innerText=cost.toFixed(2);
 }
+
+function getDistance(lat1,lon1,lat2,lon2){
+  const R=6371;
+  const dLat=(lat2-lat1)*Math.PI/180;
+  const dLon=(lon2-lon1)*Math.PI/180;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R*(2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)));
+}
+
+document.getElementById("searchBtn").onclick=()=>{
+  const input=document.getElementById("destination").value.trim();
+  if(!input) return alert("গন্তব্য লিখুন বা সিলেক্ট করুন!");
+  if(input.includes(",")){
+    const [lat,lng]=input.split(",");
+    setDestination(parseFloat(lat),parseFloat(lng));
+  } else {
+    fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(input)}`)
+    .then(res=>res.json())
+    .then(data=>{
+      if(data.length){
+        let loc=data[0];
+        setDestination(parseFloat(loc.lat),parseFloat(loc.lon));
+      } else alert("লোকেশন পাওয়া যায়নি!");
+    });
+  }
+};
+
+document.getElementById("resetBtn").onclick=()=>{
+  totalDist=0; smoothSpeed=0; maxSpeed=0; count=0;
+  lastLat=null; lastLng=null;
+  speedText.innerText="0.000";
+  distanceText.innerText="0.000";
+  etaText.innerText="--:--";
+  fuelCostText.innerText="0.00";
+  statusText.innerText="🟢 Efficient Driving";
+  if(routeControl) map.removeControl(routeControl);
+  if(destMarker) map.removeLayer(destMarker);
+  speak("সব রিসেট করা হয়েছে। নতুন যাত্রা শুরু করুন।");
+};
+
+if(navigator.geolocation){
+  navigator.geolocation.watchPosition(updateStats,console.error,{enableHighAccuracy:true});
+  navigator.geolocation.getCurrentPosition(pos=>initMap(pos.coords.latitude,pos.coords.longitude));
+} else alert("GPS সাপোর্ট করে না এই ডিভাইসটি।");
+
 </script>
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
 </body>
 </html>
