@@ -3,156 +3,150 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Live AI Navigator</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.5/dist/leaflet.css" />
+<title>AI Smart Drive Tracker</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
 <style>
-body { margin:0; font-family:sans-serif; background:#111; color:#fff; }
-.container { max-width:480px; margin:15px auto; padding:10px; background:rgba(0,0,0,0.6); border-radius:15px; }
-input, button { width:90%; padding:10px; margin:6px 0; border-radius:8px; border:none; font-size:16px; }
-button { background:#00b4d8; color:#fff; cursor:pointer; transition:0.3s; }
-button:hover{background:#0096c7;}
-#speed { font-size:36px; color:#0f0; margin:10px 0; }
-.info { font-size:14px; margin:2px 0; }
-#map { width:100%; height:300px; border-radius:10px; margin-top:10px; }
-#graph { width:100%; height:100px; background:rgba(255,255,255,0.1); border-radius:8px; position:relative; overflow:hidden; margin-top:10px;}
-.bar { position:absolute; bottom:0; width:3px; background:#0f0; }
+  *{margin:0;padding:0;box-sizing:border-box;font-family:'Poppins',sans-serif;}
+  body{height:100vh;display:flex;flex-direction:column;}
+  #map{flex:1;}
+  .info-panel{
+    background:#fff;padding:10px;box-shadow:0 2px 8px rgba(0,0,0,0.2);
+    position:absolute;top:10px;left:10px;z-index:1000;border-radius:12px;
+    width:230px;font-size:14px;line-height:1.6;
+  }
+  .info-panel h3{text-align:center;margin-bottom:6px;}
+  .highlight{font-weight:bold;color:#1e88e5;}
+  .set-destination{
+    position:absolute;bottom:15px;left:50%;transform:translateX(-50%);
+    background:#1e88e5;color:#fff;border:none;padding:10px 20px;border-radius:10px;
+    box-shadow:0 2px 6px rgba(0,0,0,0.3);font-size:15px;cursor:pointer;
+  }
+  .set-destination:hover{background:#1565c0;}
 </style>
 </head>
 <body>
-<h2 style="text-align:center">🚗 Live AI Navigator</h2>
-<div class="container">
-  <input type="text" id="username" placeholder="তোমার নাম">
-  <input type="number" id="speedLimit" placeholder="Speed Limit km/h">
-  <button id="startBtn">Start Navigation</button>
-  <div id="speed">0.000 km/h</div>
-  <div class="info" id="maxAvg">Max: 0.000 | Avg: 0.000</div>
-  <div class="info" id="distance">Distance: 0.00 km</div>
-  <div class="info" id="eta">ETA: —</div>
-  <div class="info" id="directionText">Direction: —</div>
-  <div id="map"></div>
-  <div id="graph"></div>
-  <button id="resetBtn">Reset</button>
+
+<div id="map"></div>
+
+<div class="info-panel">
+  <h3>🚗 Speed Meter</h3>
+  <div>Speed: <span id="currentSpeed" class="highlight">0.000</span> km/h</div>
+  <div>Max Speed: <span id="maxSpeed" class="highlight">0.000</span> km/h</div>
+  <div>Avg Speed: <span id="avgSpeed" class="highlight">0.000</span> km/h</div>
+  <hr>
+  <div>ETA: <span id="eta" class="highlight">--:--</span></div>
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.5/dist/leaflet.js"></script>
-<script>
-// Leaflet map
-const map = L.map('map').fitWorld();
-let userMarker = null;
-let carIcon = L.icon({iconUrl:'https://i.postimg.cc/3xn9Sd08/car.png', iconSize:[32,32], iconAnchor:[16,16]});
-let routeLine = null;
-let destinationLatLng = null;
+<button class="set-destination" onclick="setDestination()">📍 Set Destination</button>
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-  maxZoom:19
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.min.js"></script>
+
+<script>
+const username = "Sobuj";
+const speedLimit = 60;
+let carMarker, routeControl;
+let prevLatLng = null;
+let totalSpeed = 0, updates = 0, maxSpeed = 0;
+let alertPlaying = false;
+let startTime = null;
+let destination = null;
+let etaDisplay = document.getElementById("eta");
+
+const map = L.map('map').setView([23.8103, 90.4125], 13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
 }).addTo(map);
 
-// Variables
-let speed=0, maxSpeed=0, avgSpeed=0, totalSpeed=0, count=0, distance=0;
-let speedLimit=60, userName="";
-let alertActive=false;
-let bars=[];
-const speedDisplay=document.getElementById("speed");
-const maxAvg=document.getElementById("maxAvg");
-const distanceDisplay=document.getElementById("distance");
-const etaDisplay=document.getElementById("eta");
-const directionText=document.getElementById("directionText");
-const graph=document.getElementById("graph");
-
-// Start Navigation
-document.getElementById("startBtn").addEventListener("click",()=>{
-  userName=document.getElementById("username").value.trim();
-  speedLimit=parseFloat(document.getElementById("speedLimit").value)||60;
-  if(!navigator.geolocation){alert("GPS not supported"); return;}
-  navigator.geolocation.watchPosition(updatePosition,{enableHighAccuracy:true});
+const carIcon = L.icon({
+  iconUrl: "https://i.postimg.cc/3xn9Sd08/car.png",
+  iconSize: [40,40],
+  iconAnchor: [20,20]
 });
 
-// Reset
-document.getElementById("resetBtn").addEventListener("click",()=>{
-  speed=0; maxSpeed=0; avgSpeed=0; totalSpeed=0; count=0; distance=0;
-  alertActive=false;
-  bars.forEach(b=>graph.removeChild(b)); bars=[];
-  if(routeLine) map.removeLayer(routeLine); routeLine=null;
-  if(userMarker) map.removeLayer(userMarker); userMarker=null;
-  destinationLatLng=null;
-  updateDisplay();
-});
+if(navigator.geolocation){
+  navigator.geolocation.watchPosition(updatePosition, err=>{
+    alert("লোকেশন চালু করুন!");
+  }, {enableHighAccuracy:true});
+}
 
-// Update Position
 function updatePosition(pos){
-  const lat=pos.coords.latitude;
-  const lon=pos.coords.longitude;
-  const timestamp=pos.timestamp;
-  if(userMarker) userMarker.setLatLng([lat,lon]);
-  else userMarker=L.marker([lat,lon],{icon:carIcon}).addTo(map).bindPopup("You");
-  map.setView([lat,lon],16);
+  const lat = pos.coords.latitude;
+  const lng = pos.coords.longitude;
+  const speed = pos.coords.speed ? pos.coords.speed * 3.6 : 0;
+  const currentLatLng = L.latLng(lat, lng);
 
-  // Calculate speed
-  if(updatePosition.lastLatLng){
-    const dist=getDistance(updatePosition.lastLatLng.lat,updatePosition.lastLatLng.lon,lat,lon);
-    const dt=(timestamp-updatePosition.lastTime)/1000;
-    speed=(dt>0)? dist/(dt/3600) : 0;
-    distance+=dist;
-    totalSpeed+=speed; count++; avgSpeed=totalSpeed/count;
-    if(speed>maxSpeed) maxSpeed=speed;
-    drawGraph(speed);
-    if(speed>speedLimit && !alertActive){alertActive=true; speedAlert();}
-    else if(speed<=speedLimit) alertActive=false;
+  if(!startTime) startTime = Date.now();
+  if(!carMarker){
+    carMarker = L.marker(currentLatLng,{icon:carIcon}).addTo(map);
+    map.setView(currentLatLng,16);
+  }else{
+    carMarker.setLatLng(currentLatLng);
   }
-  updateDisplay();
-  updatePosition.lastLatLng={lat,lon};
-  updatePosition.lastTime=timestamp;
+
+  updates++;
+  totalSpeed += speed;
+  maxSpeed = Math.max(maxSpeed, speed);
+  const avgSpeed = totalSpeed / updates;
+  document.getElementById("currentSpeed").innerText = speed.toFixed(3);
+  document.getElementById("maxSpeed").innerText = maxSpeed.toFixed(3);
+  document.getElementById("avgSpeed").innerText = avgSpeed.toFixed(3);
+
+  // Overspeed alert
+  if(speed > speedLimit && !alertPlaying){
+    alertPlaying = true;
+    speakBangla(`এই ${username}, গাড়ির স্পিড কমাও!`);
+    let repeat = setInterval(()=>{
+      if(speed > speedLimit){
+        speakBangla(`এই ${username}, গাড়ির স্পিড কমাও!`);
+      } else {
+        clearInterval(repeat);
+        alertPlaying = false;
+      }
+    }, 2500);
+  }
+
+  // ETA auto-update
+  if(destination){
+    const dist = currentLatLng.distanceTo(destination)/1000;
+    const etaMin = speed>5 ? dist/(speed/60):0;
+    if(etaMin>0){
+      const etaTime = new Date(Date.now() + etaMin*60000);
+      const hrs = etaTime.getHours().toString().padStart(2,'0');
+      const mins = etaTime.getMinutes().toString().padStart(2,'0');
+      etaDisplay.innerText = `${hrs}:${mins}`;
+    }
+  }
+
+  prevLatLng = currentLatLng;
 }
 
-// Haversine distance
-function getDistance(lat1,lon1,lat2,lon2){
-  const R=6371; const dLat=(lat2-lat1)*Math.PI/180; const dLon=(lon2-lon1)*Math.PI/180;
-  const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
-  const c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
-  return R*c;
+function speakBangla(text){
+  const msg = new SpeechSynthesisUtterance(text);
+  msg.lang = "bn-BD";
+  msg.rate = 0.9;
+  msg.pitch = 1;
+  window.speechSynthesis.speak(msg);
 }
 
-// Update Display
-function updateDisplay(){
-  speedDisplay.textContent=speed.toFixed(3)+" km/h";
-  maxAvg.textContent=`Max: ${maxSpeed.toFixed(3)} | Avg: ${avgSpeed.toFixed(3)}`;
-  distanceDisplay.textContent=`Distance: ${distance.toFixed(2)} km`;
-  if(destinationLatLng && speed>0){
-    const remaining=getDistance(updatePosition.lastLatLng.lat,updatePosition.lastLatLng.lon,destinationLatLng.lat,destinationLatLng.lon);
-    const etaMins=remaining/speed*60;
-    etaDisplay.textContent=`ETA: ${etaMins.toFixed(1)} min`;
-  } else etaDisplay.textContent="ETA: —";
-}
-
-// Speed Alert
-function speedAlert(){
-  const msg=new SpeechSynthesisUtterance(`এই ${userName||"ড্রাইভার"}, গাড়ির স্পিড কমাও!`);
-  msg.lang="bn-BD"; speechSynthesis.speak(msg);
-  if(alertActive) setTimeout(speedAlert,4000);
-}
-
-// Graph
-function drawGraph(currentSpeed){
-  const bar=document.createElement("div");
-  bar.classList.add("bar");
-  bar.style.height=(currentSpeed*1.2)+"px";
-  bar.style.left=graph.clientWidth+"px";
-  graph.appendChild(bar);
-  bars.push(bar);
-  bars.forEach(b=>{
-    b.style.left=(parseFloat(b.style.left)-3)+"px";
-    if(parseFloat(b.style.left)<-3){ graph.removeChild(b); bars.shift(); }
+// ✅ Set destination + find shortest route
+function setDestination(){
+  alert("🗺 ম্যাপে যেখানে যেতে চাও সেখানে ক্লিক করো!");
+  map.once('click', function(e){
+    destination = e.latlng;
+    if(routeControl) map.removeControl(routeControl);
+    routeControl = L.Routing.control({
+      waypoints: [carMarker.getLatLng(), destination],
+      router: L.Routing.osrmv1({serviceUrl: 'https://router.project-osrm.org/route/v1'}),
+      routeWhileDragging: false,
+      lineOptions: {
+        styles: [{color:'#1e88e5',opacity:0.8,weight:5}]
+      },
+      show: false,
+      createMarker: ()=>null
+    }).addTo(map);
   });
 }
-
-// Select destination on map click
-map.on('click',function(e){
-  destinationLatLng={lat:e.latlng.lat, lon:e.latlng.lng};
-  if(routeLine) map.removeLayer(routeLine);
-  routeLine=L.polyline([updatePosition.lastLatLng,destinationLatLng],{color:'lime'}).addTo(map);
-  directionText.textContent="Direction: Destination set";
-});
-
 </script>
 </body>
 </html>
