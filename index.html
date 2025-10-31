@@ -3,199 +3,132 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Navigator Fleet Ultra</title>
+<title>Live AI Navigator</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.5/dist/leaflet.css" />
 <style>
-body {
-  margin: 0;
-  font-family: "Poppins", sans-serif;
-  background: linear-gradient(135deg,#0f2027,#203a43,#2c5364);
-  color: #fff;
-}
-.container {
-  max-width: 480px;
-  margin: 15px auto;
-  padding: 15px;
-  background: rgba(255,255,255,0.1);
-  border-radius: 15px;
-}
-input, button {
-  width: 90%;
-  padding: 10px;
-  margin: 6px 0;
-  border: none;
-  border-radius: 10px;
-  font-size: 16px;
-  text-align: center;
-}
-button {
-  background: #00b4d8;
-  color: #fff;
-  font-weight: bold;
-  cursor: pointer;
-  transition: 0.3s;
-}
-button:hover { background:#0096c7 }
-#speedDisplay { font-size: 40px; color: #00ffcc; margin-top: 10px; }
-.info { font-size: 15px; margin-top: 5px; }
-#map { width: 100%; height: 300px; background: #111; border-radius: 10px; margin-top: 10px; position: relative; overflow: hidden; }
-.car-icon { width: 32px; height: 32px; position: absolute; transform: translate(-50%, -50%); }
-#graph { width: 100%; height: 100px; background: rgba(255,255,255,0.1); border-radius: 8px; overflow: hidden; position: relative; margin-top:10px;}
-.bar { position: absolute; bottom:0; width:3px; background:lime; }
+body { margin:0; font-family:sans-serif; background:#111; color:#fff; }
+.container { max-width:480px; margin:15px auto; padding:10px; background:rgba(0,0,0,0.6); border-radius:15px; }
+input, button { width:90%; padding:10px; margin:6px 0; border-radius:8px; border:none; font-size:16px; }
+button { background:#00b4d8; color:#fff; cursor:pointer; transition:0.3s; }
+button:hover{background:#0096c7;}
+#speed { font-size:36px; color:#0f0; margin:10px 0; }
+.info { font-size:14px; margin:2px 0; }
+#map { width:100%; height:300px; border-radius:10px; margin-top:10px; }
+#graph { width:100%; height:100px; background:rgba(255,255,255,0.1); border-radius:8px; position:relative; overflow:hidden; margin-top:10px;}
+.bar { position:absolute; bottom:0; width:3px; background:#0f0; }
 </style>
 </head>
 <body>
-<h1 style="text-align:center">🚗 AI Navigator Fleet Ultra</h1>
+<h2 style="text-align:center">🚗 Live AI Navigator</h2>
 <div class="container">
-  <input type="text" id="username" placeholder="তোমার নাম (যেমন Saimon)">
-  <input type="number" id="speedLimit" placeholder="স্পিড লিমিট (km/h)">
-  <input type="number" id="destination" placeholder="গন্তব্য দূরত্ব (km)">
-  <input type="number" id="fuelEff" placeholder="মাইলেজ (km/L)">
-  <input type="number" id="fuelPrice" placeholder="ফুয়েল দাম (প্রতি লিটার)">
-  <button id="startBtn">▶️ Start Navigation</button>
-
-  <div id="speedDisplay">0.000 km/h</div>
-  <div class="info" id="efficiency">🟢 Efficient Driving</div>
-  <div class="info" id="traffic">Traffic: 🟢 Smooth</div>
+  <input type="text" id="username" placeholder="তোমার নাম">
+  <input type="number" id="speedLimit" placeholder="Speed Limit km/h">
+  <button id="startBtn">Start Navigation</button>
+  <div id="speed">0.000 km/h</div>
   <div class="info" id="maxAvg">Max: 0.000 | Avg: 0.000</div>
+  <div class="info" id="distance">Distance: 0.00 km</div>
   <div class="info" id="eta">ETA: —</div>
-  <div class="info" id="fuel">Fuel Used: 0.00L | Cost: 0.00৳</div>
-  <div class="info" id="direction">Direction: —</div>
-  <div class="info" id="risk">Safe Zone: 🟢 Safe</div>
-
-  <div id="map"><img src="https://i.postimg.cc/3xn9Sd08/car.png" class="car-icon" id="carIcon"></div>
+  <div class="info" id="directionText">Direction: —</div>
+  <div id="map"></div>
   <div id="graph"></div>
-
-  <button id="resetBtn">🔄 Reset</button>
+  <button id="resetBtn">Reset</button>
 </div>
 
+<script src="https://unpkg.com/leaflet@1.9.5/dist/leaflet.js"></script>
 <script>
+// Leaflet map
+const map = L.map('map').fitWorld();
+let userMarker = null;
+let carIcon = L.icon({iconUrl:'https://i.postimg.cc/3xn9Sd08/car.png', iconSize:[32,32], iconAnchor:[16,16]});
+let routeLine = null;
+let destinationLatLng = null;
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+  maxZoom:19
+}).addTo(map);
+
 // Variables
-let speed=0, maxSpeed=0, avgSpeed=0, totalSpeed=0, count=0;
+let speed=0, maxSpeed=0, avgSpeed=0, totalSpeed=0, count=0, distance=0;
 let speedLimit=60, userName="";
-let destination=0, distanceCovered=0;
-let fuelEff=15, fuelPrice=120;
 let alertActive=false;
-let isNavigating=false;
-let directionIndex=0, bars=[];
-const directions=[
-  "সোজা সামনে যাও",
-  "বামদিকে যাও",
-  "ডানদিকে মোড় নাও",
-  "সোজা সামনে যাও",
-  "গন্তব্যে পৌঁছে গেছো"
-];
-const riskZones=[
-  {start:0,end:2,type:"High"},
-  {start:2,end:5,type:"Medium"},
-  {start:5,end:10,type:"Low"}
-];
-
-const speedDisplay=document.getElementById("speedDisplay");
-const efficiency=document.getElementById("efficiency");
-const traffic=document.getElementById("traffic");
+let bars=[];
+const speedDisplay=document.getElementById("speed");
+const maxAvg=document.getElementById("maxAvg");
+const distanceDisplay=document.getElementById("distance");
+const etaDisplay=document.getElementById("eta");
+const directionText=document.getElementById("directionText");
 const graph=document.getElementById("graph");
-const directionText=document.getElementById("direction");
-const etaText=document.getElementById("eta");
-const fuelText=document.getElementById("fuel");
-const riskText=document.getElementById("risk");
-const carIcon=document.getElementById("carIcon");
-const map=document.getElementById("map");
 
-// Start button
+// Start Navigation
 document.getElementById("startBtn").addEventListener("click",()=>{
-  if(isNavigating) return;
   userName=document.getElementById("username").value.trim();
   speedLimit=parseFloat(document.getElementById("speedLimit").value)||60;
-  destination=parseFloat(document.getElementById("destination").value)||10;
-  fuelEff=parseFloat(document.getElementById("fuelEff").value)||15;
-  fuelPrice=parseFloat(document.getElementById("fuelPrice").value)||120;
-  isNavigating=true;
-  simulateSpeed();
-  simulateDirections();
+  if(!navigator.geolocation){alert("GPS not supported"); return;}
+  navigator.geolocation.watchPosition(updatePosition,{enableHighAccuracy:true});
 });
 
 // Reset
 document.getElementById("resetBtn").addEventListener("click",()=>{
-  speed=0; maxSpeed=0; avgSpeed=0; totalSpeed=0; count=0;
-  distanceCovered=0; directionIndex=0; isNavigating=false;
+  speed=0; maxSpeed=0; avgSpeed=0; totalSpeed=0; count=0; distance=0;
+  alertActive=false;
   bars.forEach(b=>graph.removeChild(b)); bars=[];
-  carIcon.style.left="50%"; carIcon.style.top="50%";
+  if(routeLine) map.removeLayer(routeLine); routeLine=null;
+  if(userMarker) map.removeLayer(userMarker); userMarker=null;
+  destinationLatLng=null;
   updateDisplay();
 });
 
-// Speed Simulation
-function simulateSpeed(){
-  setInterval(()=>{
-    if(!isNavigating) return;
-    let delta=(Math.random()-0.5)*3;
-    speed=Math.max(0,Math.min(speed+delta,120));
-    maxSpeed=Math.max(maxSpeed,speed);
-    totalSpeed+=speed; count++;
-    avgSpeed=totalSpeed/count;
-    distanceCovered+=speed/3600;
-    if(distanceCovered>=destination){
-      isNavigating=false;
-      speak("আপনি গন্তব্যে পৌঁছে গেছেন।");
-      directionText.textContent="Direction: গন্তব্যে পৌঁছে গেছো";
-      riskText.textContent="Safe Zone: 🟢 Safe";
-    }
-    updateDisplay();
+// Update Position
+function updatePosition(pos){
+  const lat=pos.coords.latitude;
+  const lon=pos.coords.longitude;
+  const timestamp=pos.timestamp;
+  if(userMarker) userMarker.setLatLng([lat,lon]);
+  else userMarker=L.marker([lat,lon],{icon:carIcon}).addTo(map).bindPopup("You");
+  map.setView([lat,lon],16);
+
+  // Calculate speed
+  if(updatePosition.lastLatLng){
+    const dist=getDistance(updatePosition.lastLatLng.lat,updatePosition.lastLatLng.lon,lat,lon);
+    const dt=(timestamp-updatePosition.lastTime)/1000;
+    speed=(dt>0)? dist/(dt/3600) : 0;
+    distance+=dist;
+    totalSpeed+=speed; count++; avgSpeed=totalSpeed/count;
+    if(speed>maxSpeed) maxSpeed=speed;
     drawGraph(speed);
-    moveCar(distanceCovered/destination);
-    if(speed>speedLimit && !alertActive){
-      alertActive=true; saySpeedAlert();
-    } else if(speed<=speedLimit) alertActive=false;
-    checkRiskZone();
-  },1000);
+    if(speed>speedLimit && !alertActive){alertActive=true; speedAlert();}
+    else if(speed<=speedLimit) alertActive=false;
+  }
+  updateDisplay();
+  updatePosition.lastLatLng={lat,lon};
+  updatePosition.lastTime=timestamp;
+}
+
+// Haversine distance
+function getDistance(lat1,lon1,lat2,lon2){
+  const R=6371; const dLat=(lat2-lat1)*Math.PI/180; const dLon=(lon2-lon1)*Math.PI/180;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+  const c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+  return R*c;
 }
 
 // Update Display
 function updateDisplay(){
   speedDisplay.textContent=speed.toFixed(3)+" km/h";
-  document.getElementById("maxAvg").textContent=
-    `Max: ${maxSpeed.toFixed(3)} | Avg: ${avgSpeed.toFixed(3)}`;
-  efficiency.textContent=speed<speedLimit*0.9?"🟢 Efficient Driving":"⚠️ High Speed";
-  efficiency.style.color=speed<speedLimit*0.9?"#0f0":"#ff0";
-  traffic.textContent=speed<20?"Traffic: 🔴 Heavy":speed<40?"Traffic: 🟠 Moderate":"Traffic: 🟢 Smooth";
-  let remainingDist=Math.max(destination-distanceCovered,0);
-  let etaHours=(speed>0)?remainingDist/speed:Infinity;
-  if(isFinite(etaHours)){
-    let etaMins=etaHours*60;
-    etaText.textContent=`ETA: ${etaMins.toFixed(1)} min (${remainingDist.toFixed(2)} km left)`;
-  }
-  let fuelUsed=distanceCovered/fuelEff;
-  let cost=fuelUsed*fuelPrice;
-  fuelText.textContent=`Fuel Used: ${fuelUsed.toFixed(2)}L | Cost: ${cost.toFixed(2)}৳`;
+  maxAvg.textContent=`Max: ${maxSpeed.toFixed(3)} | Avg: ${avgSpeed.toFixed(3)}`;
+  distanceDisplay.textContent=`Distance: ${distance.toFixed(2)} km`;
+  if(destinationLatLng && speed>0){
+    const remaining=getDistance(updatePosition.lastLatLng.lat,updatePosition.lastLatLng.lon,destinationLatLng.lat,destinationLatLng.lon);
+    const etaMins=remaining/speed*60;
+    etaDisplay.textContent=`ETA: ${etaMins.toFixed(1)} min`;
+  } else etaDisplay.textContent="ETA: —";
 }
 
-// Directions Simulation
-function simulateDirections(){
-  let delay=7000;
-  function nextDirection(){
-    if(!isNavigating || directionIndex>=directions.length) return;
-    let dir=directions[directionIndex];
-    directionText.textContent="Direction: "+dir;
-    speak(dir);
-    directionIndex++;
-    setTimeout(nextDirection,delay);
-  }
-  nextDirection();
-}
-
-// Voice Alerts
-function saySpeedAlert(){
-  const msg=new SpeechSynthesisUtterance(
-    `এই ${userName||"ড্রাইভার"}, গাড়ির স্পিড কমাও!`
-  );
-  msg.lang="bn-BD";
-  speechSynthesis.speak(msg);
-  if(alertActive) setTimeout(saySpeedAlert,4000);
-}
-
-function speak(text){
-  const msg=new SpeechSynthesisUtterance(text);
-  msg.lang="bn-BD";
-  speechSynthesis.speak(msg);
+// Speed Alert
+function speedAlert(){
+  const msg=new SpeechSynthesisUtterance(`এই ${userName||"ড্রাইভার"}, গাড়ির স্পিড কমাও!`);
+  msg.lang="bn-BD"; speechSynthesis.speak(msg);
+  if(alertActive) setTimeout(speedAlert,4000);
 }
 
 // Graph
@@ -208,28 +141,18 @@ function drawGraph(currentSpeed){
   bars.push(bar);
   bars.forEach(b=>{
     b.style.left=(parseFloat(b.style.left)-3)+"px";
-    if(parseFloat(b.style.left)<-3){
-      graph.removeChild(b);
-      bars.shift();
-    }
+    if(parseFloat(b.style.left)<-3){ graph.removeChild(b); bars.shift(); }
   });
 }
 
-// Risk Zone
-function checkRiskZone(){
-  let zone=riskZones.find(rz=>distanceCovered>=rz.start && distanceCovered<=rz.end);
-  if(zone){
-    if(zone.type==="High"){ riskText.textContent="Safe Zone: ⚠️ Risk Zone"; speak("সাবধান! রাস্তা বিপজ্জনক হতে পারে।"); }
-    else if(zone.type==="Medium"){ riskText.textContent="Safe Zone: 🟡 Medium Risk"; }
-    else riskText.textContent="Safe Zone: 🟢 Safe";
-  }
-}
+// Select destination on map click
+map.on('click',function(e){
+  destinationLatLng={lat:e.latlng.lat, lon:e.latlng.lng};
+  if(routeLine) map.removeLayer(routeLine);
+  routeLine=L.polyline([updatePosition.lastLatLng,destinationLatLng],{color:'lime'}).addTo(map);
+  directionText.textContent="Direction: Destination set";
+});
 
-// Car Movement on Map
-function moveCar(progress){
-  const x=50+progress*200; // simple horizontal movement
-  carIcon.style.left=x+"px";
-}
 </script>
 </body>
 </html>
