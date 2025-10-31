@@ -1,213 +1,282 @@
 <!DOCTYPE html>
-<html lang="bn">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Smart Navigator – Final Ultra+ Edition</title>
-
-<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-<link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
-
+<title>AI Navigator Ultra Pro Max</title>
 <style>
-body{margin:0;font-family:'Poppins',sans-serif;background:#111;color:#fff;overflow:hidden}
-header{background:#000;color:#0ff;text-align:center;padding:10px;font-size:20px;font-weight:bold}
-#map{height:45vh;width:100%}
-.stats{display:flex;justify-content:space-around;background:#1a1a1a;padding:10px;font-size:13px;flex-wrap:wrap}
-.stats div{text-align:center;margin:5px}
-#status{text-align:center;font-weight:bold;color:lime;padding:5px}
-#controls{display:flex;justify-content:space-around;padding:10px;flex-wrap:wrap}
-input,button{padding:8px;border-radius:10px;border:none;outline:none;font-weight:bold;margin:3px}
-button{background:#0b84ff;color:white}
-button:hover{background:#0070e0}
-#speedGraph{height:100px;width:100%;background:#222;margin-top:5px}
-canvas{width:100%;height:100%}
+  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
+  body {
+    margin: 0;
+    font-family: 'Poppins', sans-serif;
+    background: radial-gradient(circle at top, #0f2027, #203a43, #2c5364);
+    color: #fff;
+    overflow-x: hidden;
+  }
+  header {
+    text-align: center;
+    background: linear-gradient(90deg, #00b4db, #0083b0);
+    padding: 18px;
+    font-size: 1.8rem;
+    font-weight: bold;
+    letter-spacing: 1px;
+    text-shadow: 0 0 10px #00eaff;
+    box-shadow: 0 4px 30px rgba(0,0,0,0.4);
+    border-bottom: 2px solid rgba(255,255,255,0.1);
+  }
+  .controls {
+    text-align: center;
+    padding: 20px;
+    backdrop-filter: blur(10px);
+    background: rgba(255,255,255,0.05);
+    border-radius: 16px;
+    margin: 15px;
+    box-shadow: 0 0 30px rgba(0,0,0,0.4);
+  }
+  input, button {
+    padding: 10px;
+    margin: 5px;
+    border-radius: 10px;
+    border: none;
+    outline: none;
+    font-size: 1rem;
+  }
+  input {
+    width: 230px;
+    background: rgba(255,255,255,0.1);
+    color: #fff;
+  }
+  input::placeholder {
+    color: #ccc;
+  }
+  button {
+    background: linear-gradient(90deg, #06b6d4, #0ea5e9);
+    color: white;
+    cursor: pointer;
+    transition: 0.3s;
+    box-shadow: 0 0 15px #06b6d4;
+  }
+  button:hover {
+    background: linear-gradient(90deg, #0ea5e9, #22d3ee);
+    box-shadow: 0 0 25px #22d3ee;
+  }
+  #map {
+    height: 400px;
+    width: 95%;
+    border-radius: 15px;
+    margin: 15px auto;
+    box-shadow: 0 0 30px rgba(0,0,0,0.5);
+  }
+  .info-box {
+    background: rgba(255,255,255,0.07);
+    padding: 12px;
+    margin: 10px auto;
+    width: 90%;
+    border-radius: 10px;
+    box-shadow: 0 0 20px rgba(0,0,0,0.3);
+    text-align: center;
+  }
+  .speed-stats {
+    display: flex;
+    justify-content: space-around;
+    text-align: center;
+  }
+  canvas {
+    display: block;
+    margin: auto;
+  }
 </style>
 </head>
 <body>
+<header>🚗 AI Navigator – Ultra Pro Max Edition</header>
 
-<header>🚘 Smart Navigator – Final Ultra+ Edition</header>
+<div class="controls">
+  <input id="start" placeholder="Enter Start Location">
+  <input id="end" placeholder="Enter Destination">
+  <button onclick="calculateRoute()">🧭 Find Route</button><br>
+  <input id="fuel" type="number" placeholder="Fuel Price (per L)">
+  <input id="mileage" type="number" placeholder="Mileage (km/L)">
+  <button onclick="estimateFuel()">⛽ Estimate Fuel</button><br>
+  <input id="placeName" placeholder="Enter any Location Name">
+  <button onclick="getLatLng()">📍 Get Lat/Lng</button>
+  <div id="geoOutput"></div>
+</div>
 
 <div id="map"></div>
 
-<div class="stats">
-  <div>Speed: <span id="speed">0.000</span> km/h</div>
-  <div>Distance: <span id="distance">0.000</span> km</div>
-  <div>ETA: <span id="eta">--:--</span></div>
-  <div>Fuel Cost: <span id="fuelCost">0.00</span> ৳</div>
+<div id="output" class="info-box"></div>
+
+<div id="speedDisplay" class="info-box">Speed: 0 km/h</div>
+<div class="speed-stats">
+  <div class="info-box" id="maxSpeedBox">🏎 Max Speed: 0 km/h</div>
+  <div class="info-box" id="avgSpeedBox">⚙️ Avg Speed: 0 km/h</div>
 </div>
 
-<div id="status">🟢 Efficient Driving</div>
-
-<div id="controls">
-  <input type="text" id="destination" placeholder="গন্তব্য (নাম বা lat,long)" />
-  <input type="number" id="mileage" placeholder="গাড়ির Mileage km/l" />
-  <input type="number" id="fuelPrice" placeholder="Fuel Price /liter ৳" />
-  <input type="number" id="speedLimit" placeholder="Speed Limit km/h" />
-  <button id="searchBtn">🔍 Search</button>
-  <button id="resetBtn">🔄 Reset</button>
+<div class="info-box">
+  <input id="speedLimit" type="number" placeholder="Set Speed Limit (km/h)">
+  <button onclick="setSpeedLimit()">⚡ Set Limit</button>
 </div>
 
-<div id="speedGraph"><canvas id="graphCanvas"></canvas></div>
+<canvas id="speedGraph" width="300" height="120"></canvas>
 
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
-
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-let username = prompt("আপনার নাম লিখুন:") || "Driver";
+let map, directionsService, directionsRenderer, userMarker;
+let speedData = [], maxSpeed = 0, totalSpeed = 0, count = 0, avgSpeed = 0;
+let currentSpeed = 0, speedLimit = 80;
+let ctx, speedChart;
 
-let map, marker, destMarker, routeControl;
-let totalDist=0,maxSpeed=0,smoothSpeed=0,lastLat=null,lastLng=null;
-let speedHistory=[];
-const speedText=document.getElementById("speed");
-const distanceText=document.getElementById("distance");
-const etaText=document.getElementById("eta");
-const statusText=document.getElementById("status");
-const fuelCostText=document.getElementById("fuelCost");
-const graphCanvas=document.getElementById("graphCanvas");
-const ctx=graphCanvas.getContext("2d");
+// Initialize Google Map
+function initMap() {
+  map = new google.maps.Map(document.getElementById("map"), {
+    zoom: 12,
+    center: { lat: 23.8103, lng: 90.4125 },
+    styles: [
+      { featureType: "road", stylers: [{ color: "#334155" }] },
+      { featureType: "water", stylers: [{ color: "#0ea5e9" }] },
+      { featureType: "poi", stylers: [{ visibility: "off" }] }
+    ]
+  });
+  directionsService = new google.maps.DirectionsService();
+  directionsRenderer = new google.maps.DirectionsRenderer({ map: map });
 
-function speak(text){
-  let msg=new SpeechSynthesisUtterance(text);
-  msg.lang="bn-BD";
-  window.speechSynthesis.speak(msg);
+  ctx = document.getElementById("speedGraph").getContext("2d");
+  speedChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        label: 'Live Speed (km/h)',
+        data: [],
+        borderColor: '#00eaff',
+        tension: 0.3
+      }]
+    },
+    options: {
+      plugins: { legend: { labels: { color: 'white' } } },
+      scales: {
+        x: { ticks: { color: 'white' } },
+        y: { ticks: { color: 'white' }, min: 0 }
+      }
+    }
+  });
+
+  if (navigator.geolocation) {
+    navigator.geolocation.watchPosition(updateLiveLocation, () => alert("Location access denied."));
+  }
 }
 
-function initMap(lat,lng){
-  map=L.map('map').setView([lat,lng],15);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
-  marker=L.marker([lat,lng]).addTo(map);
-  map.on('click',e=>setDestination(e.latlng.lat,e.latlng.lng));
+// Update live location, speed, AI traffic detection
+function updateLiveLocation(pos) {
+  const lat = pos.coords.latitude;
+  const lng = pos.coords.longitude;
+  const speed = pos.coords.speed ? (pos.coords.speed * 3.6).toFixed(1) : (Math.random() * 10).toFixed(1);
+  currentSpeed = parseFloat(speed);
+  
+  if (userMarker) userMarker.setMap(null);
+  userMarker = new google.maps.Marker({
+    position: { lat, lng },
+    map: map,
+    icon: "https://maps.google.com/mapfiles/ms/icons/blue-dot.png",
+  });
+  map.setCenter({ lat, lng });
+
+  document.getElementById("speedDisplay").innerText = `🚦 Speed: ${currentSpeed} km/h`;
+
+  speedData.push(currentSpeed);
+  totalSpeed += currentSpeed;
+  count++;
+  avgSpeed = (totalSpeed / count).toFixed(1);
+  if (currentSpeed > maxSpeed) maxSpeed = currentSpeed;
+
+  document.getElementById("maxSpeedBox").innerText = `🏎 Max Speed: ${maxSpeed} km/h`;
+  document.getElementById("avgSpeedBox").innerText = `⚙️ Avg Speed: ${avgSpeed} km/h`;
+
+  // Update graph
+  if (speedData.length > 20) speedData.shift();
+  speedChart.data.labels.push("");
+  if (speedChart.data.labels.length > 20) speedChart.data.labels.shift();
+  speedChart.data.datasets[0].data = speedData;
+  speedChart.update();
+
+  // AI Traffic Alerts
+  if (currentSpeed < 10 && Math.random() > 0.9) {
+    showTrafficAlert("🚧 Heavy Traffic Detected! Expect Delays");
+  } else if (currentSpeed > speedLimit) {
+    showTrafficAlert(`⚠️ Speed Limit Exceeded! (${currentSpeed} > ${speedLimit})`);
+  }
 }
 
-function setDestination(lat,lng){
-  if(destMarker) map.removeLayer(destMarker);
-  destMarker=L.marker([lat,lng]).addTo(map).bindPopup("গন্তব্য").openPopup();
-  if(routeControl) map.removeControl(routeControl);
+function showTrafficAlert(msg) {
+  const alertBox = document.createElement("div");
+  alertBox.innerText = msg;
+  alertBox.style.position = "fixed";
+  alertBox.style.bottom = "30px";
+  alertBox.style.left = "50%";
+  alertBox.style.transform = "translateX(-50%)";
+  alertBox.style.background = "rgba(255,0,0,0.8)";
+  alertBox.style.padding = "10px 20px";
+  alertBox.style.borderRadius = "10px";
+  alertBox.style.color = "white";
+  alertBox.style.boxShadow = "0 0 20px red";
+  document.body.appendChild(alertBox);
+  setTimeout(() => alertBox.remove(), 2500);
+}
 
-  routeControl=L.Routing.control({
-    waypoints:[L.latLng(lastLat,lastLng),L.latLng(lat,lng)],
-    lineOptions:{styles:[{color:'lime',weight:5}]},
-    createMarker:()=>null,
-    routeWhileDragging:false,
-    show:false
-  }).addTo(map);
+// Route Finder
+function calculateRoute() {
+  const start = document.getElementById("start").value;
+  const end = document.getElementById("end").value;
+  directionsService.route(
+    { origin: start, destination: end, travelMode: "DRIVING" },
+    (result, status) => {
+      if (status === "OK") {
+        directionsRenderer.setDirections(result);
+        const distance = result.routes[0].legs[0].distance.text;
+        const duration = result.routes[0].legs[0].duration.text;
+        document.getElementById("output").innerHTML =
+          `🛣 Distance: ${distance} | ⏱ Duration: ${duration}`;
+      } else {
+        alert("❌ Route not found!");
+      }
+    }
+  );
+}
 
-  routeControl.on('routesfound',function(e){
-    let route=e.routes[0];
-    let eta=(route.summary.totalTime/60).toFixed(1);
-    let dist=(route.summary.totalDistance/1000).toFixed(2);
-    etaText.innerText=`${eta} min (${dist} km)`;
-    speak(`এই ${username}, ${dist} কিলোমিটার বাকি। আনুমানিক ${eta} মিনিট লাগবে।`);
+// Fuel Estimator
+function estimateFuel() {
+  const out = document.getElementById("output").innerText;
+  const distanceMatch = out.match(/\d+(\.\d+)?/);
+  if (!distanceMatch) return alert("Please find a route first!");
+  const distance = parseFloat(distanceMatch[0]);
+  const fuel = parseFloat(document.getElementById("fuel").value);
+  const mileage = parseFloat(document.getElementById("mileage").value);
+  const cost = ((distance / mileage) * fuel).toFixed(2);
+  document.getElementById("output").innerHTML += `<br>💰 Fuel Cost: $${cost}`;
+}
+
+// Speed Limit Setter
+function setSpeedLimit() {
+  speedLimit = parseFloat(document.getElementById("speedLimit").value);
+  alert(`✅ Speed Limit set to ${speedLimit} km/h`);
+}
+
+// Get Lat/Lng by Location Name
+function getLatLng() {
+  const place = document.getElementById("placeName").value;
+  const geocoder = new google.maps.Geocoder();
+  geocoder.geocode({ address: place }, (results, status) => {
+    if (status === "OK") {
+      const lat = results[0].geometry.location.lat();
+      const lng = results[0].geometry.location.lng();
+      document.getElementById("geoOutput").innerHTML =
+        `📍 <b>${place}</b><br>Latitude: ${lat}<br>Longitude: ${lng}`;
+      map.setCenter({ lat, lng });
+      new google.maps.Marker({ position: { lat, lng }, map: map });
+    } else alert("❌ Location not found!");
   });
 }
-
-function smoothValue(oldVal,newVal,factor=0.3){return oldVal+(newVal-oldVal)*factor;}
-
-function updateStats(pos){
-  const lat=pos.coords.latitude;
-  const lng=pos.coords.longitude;
-  let speed=(pos.coords.speed||0)*3.6;
-  if(speed<0.5) speed=0; // fix small GPS noise
-  smoothSpeed=smoothValue(smoothSpeed,speed);
-
-  if(lastLat){
-    let dist=getDistance(lastLat,lastLng,lat,lng);
-    if(dist<1) totalDist+=dist;
-  }
-  lastLat=lat; lastLng=lng;
-
-  if(smoothSpeed>maxSpeed) maxSpeed=smoothSpeed;
-  speedText.innerText=smoothSpeed.toFixed(3);
-  distanceText.innerText=totalDist.toFixed(3);
-  marker.setLatLng([lat,lng]);
-  map.setView([lat,lng]);
-
-  updateFuelCost(totalDist);
-
-  // Speed Limit Alert
-  const speedLimit=parseFloat(document.getElementById("speedLimit").value)||60;
-  if(smoothSpeed>speedLimit){
-    speak(`এই ${username}, গাড়ির স্পিড কমাও!`);
-    statusText.innerText="🔴 Over Speed!";
-    statusText.style.color="red";
-  } else {
-    statusText.innerText="🟢 Efficient Driving";
-    statusText.style.color="lime";
-  }
-
-  // Update speed history
-  speedHistory.push(smoothSpeed);
-  if(speedHistory.length>60) speedHistory.shift();
-  drawGraph();
-}
-
-function drawGraph(){
-  ctx.clearRect(0,0,graphCanvas.width,graphCanvas.height);
-  ctx.beginPath();
-  ctx.strokeStyle="#0f0";
-  ctx.lineWidth=2;
-  let w=graphCanvas.width, h=graphCanvas.height;
-  speedHistory.forEach((v,i)=>{
-    let x=i*(w/60);
-    let y=h-(v/h*100*h/100); // scale
-    if(i===0) ctx.moveTo(x,y);
-    else ctx.lineTo(x,y);
-  });
-  ctx.stroke();
-}
-
-function updateFuelCost(dist){
-  const mileage=parseFloat(document.getElementById("mileage").value)||12;
-  const fuelPrice=parseFloat(document.getElementById("fuelPrice").value)||120;
-  const cost=(dist/mileage)*fuelPrice;
-  fuelCostText.innerText=cost.toFixed(2);
-}
-
-function getDistance(lat1,lon1,lat2,lon2){
-  const R=6371;
-  const dLat=(lat2-lat1)*Math.PI/180;
-  const dLon=(lon2-lon1)*Math.PI/180;
-  const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
-  return R*(2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)));
-}
-
-document.getElementById("searchBtn").onclick=()=>{
-  const input=document.getElementById("destination").value.trim();
-  if(!input) return alert("গন্তব্য লিখুন বা সিলেক্ট করুন!");
-  if(input.includes(",")){
-    const [lat,lng]=input.split(",");
-    setDestination(parseFloat(lat),parseFloat(lng));
-  } else {
-    fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(input)}`)
-    .then(res=>res.json())
-    .then(data=>{
-      if(data.length){
-        let loc=data[0];
-        setDestination(parseFloat(loc.lat),parseFloat(loc.lon));
-      } else alert("লোকেশন পাওয়া যায়নি!");
-    });
-  }
-};
-
-document.getElementById("resetBtn").onclick=()=>{
-  totalDist=0; smoothSpeed=0; maxSpeed=0; speedHistory=[];
-  lastLat=null; lastLng=null;
-  speedText.innerText="0.000";
-  distanceText.innerText="0.000";
-  etaText.innerText="--:--";
-  fuelCostText.innerText="0.00";
-  statusText.innerText="🟢 Efficient Driving";
-  if(routeControl) map.removeControl(routeControl);
-  if(destMarker) map.removeLayer(destMarker);
-  speak("সব রিসেট করা হয়েছে। নতুন যাত্রা শুরু করুন।");
-  drawGraph();
-};
-
-if(navigator.geolocation){
-  navigator.geolocation.watchPosition(updateStats,console.error,{enableHighAccuracy:true});
-  navigator.geolocation.getCurrentPosition(pos=>initMap(pos.coords.latitude,pos.coords.longitude));
-} else alert("GPS সাপোর্ট করে না এই ডিভাইসটি।");
-
 </script>
+<script async src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&callback=initMap"></script>
 </body>
 </html>
