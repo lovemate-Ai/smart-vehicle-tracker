@@ -1,154 +1,160 @@
 <!DOCTYPE html>
-<html lang="bn">
+<html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Smart Drive Tracker</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
-<style>
-  *{margin:0;padding:0;box-sizing:border-box;font-family:'Poppins',sans-serif;}
-  body{height:100vh;display:flex;flex-direction:column;}
-  #map{flex:1;}
-  .info-panel{
-    background:#fff;padding:10px;box-shadow:0 2px 8px rgba(0,0,0,0.2);
-    position:absolute;top:10px;left:10px;z-index:1000;border-radius:12px;
-    width:230px;font-size:14px;line-height:1.6;
-  }
-  .info-panel h3{text-align:center;margin-bottom:6px;}
-  .highlight{font-weight:bold;color:#1e88e5;}
-  .set-destination{
-    position:absolute;bottom:15px;left:50%;transform:translateX(-50%);
-    background:#1e88e5;color:#fff;border:none;padding:10px 20px;border-radius:10px;
-    box-shadow:0 2px 6px rgba(0,0,0,0.3);font-size:15px;cursor:pointer;
-  }
-  .set-destination:hover{background:#1565c0;}
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Responsive Video Call App</title>
+  <style>
+    /* Basic Reset */
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: Arial, sans-serif; }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      min-height: 100vh;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: #fff;
+      padding: 20px;
+    }
+
+    h1 {
+      margin-bottom: 20px;
+      text-align: center;
+      font-size: 2rem;
+    }
+
+    /* Video Container */
+    .video-container {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 15px;
+      width: 100%;
+      max-width: 900px;
+      margin-bottom: 20px;
+    }
+
+    video {
+      width: 100%;
+      max-width: 450px;
+      border-radius: 15px;
+      box-shadow: 0 5px 20px rgba(0,0,0,0.5);
+    }
+
+    /* Buttons */
+    .controls {
+      display: flex;
+      gap: 15px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    button {
+      padding: 12px 25px;
+      border: none;
+      border-radius: 10px;
+      background: #ff7e5f;
+      color: #fff;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: transform 0.2s, background 0.3s;
+    }
+
+    button:hover {
+      background: #feb47b;
+      transform: translateY(-2px);
+    }
+
+    /* Responsive */
+    @media (max-width: 600px) {
+      video { max-width: 90%; }
+      button { width: 45%; font-size: 0.9rem; }
+    }
+  </style>
 </head>
 <body>
+  <h1>Responsive Video Call App</h1>
 
-<div id="map"></div>
+  <div class="video-container">
+    <video id="localVideo" autoplay playsinline muted></video>
+    <video id="remoteVideo" autoplay playsinline></video>
+  </div>
 
-<div class="info-panel">
-  <h3>🚗 Speed Meter</h3>
-  <div>Speed: <span id="currentSpeed" class="highlight">0.000</span> km/h</div>
-  <div>Max Speed: <span id="maxSpeed" class="highlight">0.000</span> km/h</div>
-  <div>Avg Speed: <span id="avgSpeed" class="highlight">0.000</span> km/h</div>
-  <hr>
-  <div>ETA: <span id="eta" class="highlight">--:--</span></div>
-</div>
+  <div class="controls">
+    <button id="startCall">Start Call</button>
+    <button id="answerCall">Answer Call</button>
+  </div>
 
-<button class="set-destination" onclick="setDestination()">📍 Set Destination</button>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.17.0/firebase-app.js";
+    import { getFirestore, collection, doc, setDoc, onSnapshot, getDoc } from "https://www.gstatic.com/firebasejs/10.17.0/firebase-firestore.js";
 
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.min.js"></script>
+    const firebaseConfig = {
 
-<script>
-const username = "Sobuj";
-const speedLimit = 60;
-let carMarker, routeControl;
-let prevLatLng = null;
-let totalSpeed = 0, updates = 0, maxSpeed = 0;
-let alertPlaying = false;
-let startTime = null;
-let destination = null;
-let etaDisplay = document.getElementById("eta");
+  apiKey: "AIzaSyCNNNQqwowO4OuxW2yjKvMpI-edMolKMy0",
 
-const map = L.map('map').setView([23.8103, 90.4125], 13);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
-}).addTo(map);
+  authDomain: "smart-veichle-tracker.firebaseapp.com",
 
-const carIcon = L.icon({
-  iconUrl: "https://i.postimg.cc/3xn9Sd08/car.png",
-  iconSize: [40,40],
-  iconAnchor: [20,20]
-});
+  projectId: "smart-veichle-tracker",
 
-if(navigator.geolocation){
-  navigator.geolocation.watchPosition(updatePosition, err=>{
-    alert("লোকেশন চালু করুন!");
-  }, {enableHighAccuracy:true});
-}
+  storageBucket: "smart-veichle-tracker.firebasestorage.app",
 
-function updatePosition(pos){
-  const lat = pos.coords.latitude;
-  const lng = pos.coords.longitude;
-  const speed = pos.coords.speed ? pos.coords.speed * 3.6 : 0;
-  const currentLatLng = L.latLng(lat, lng);
+  messagingSenderId: "384592713965",
 
-  if(!startTime) startTime = Date.now();
-  if(!carMarker){
-    carMarker = L.marker(currentLatLng,{icon:carIcon}).addTo(map);
-    map.setView(currentLatLng,16);
-  }else{
-    carMarker.setLatLng(currentLatLng);
-  }
+  appId: "1:384592713965:web:5a530662a268c4096594e4"
 
-  updates++;
-  totalSpeed += speed;
-  maxSpeed = Math.max(maxSpeed, speed);
-  const avgSpeed = totalSpeed / updates;
-  document.getElementById("currentSpeed").innerText = speed.toFixed(3);
-  document.getElementById("maxSpeed").innerText = maxSpeed.toFixed(3);
-  document.getElementById("avgSpeed").innerText = avgSpeed.toFixed(3);
+};
 
-  // Overspeed alert
-  if(speed > speedLimit && !alertPlaying){
-    alertPlaying = true;
-    speakBangla(`এই ${username}, গাড়ির স্পিড কমাও!`);
-    let repeat = setInterval(()=>{
-      if(speed > speedLimit){
-        speakBangla(`এই ${username}, গাড়ির স্পিড কমাও!`);
-      } else {
-        clearInterval(repeat);
-        alertPlaying = false;
-      }
-    }, 2500);
-  }
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
 
-  // ETA auto-update
-  if(destination){
-    const dist = currentLatLng.distanceTo(destination)/1000;
-    const etaMin = speed>5 ? dist/(speed/60):0;
-    if(etaMin>0){
-      const etaTime = new Date(Date.now() + etaMin*60000);
-      const hrs = etaTime.getHours().toString().padStart(2,'0');
-      const mins = etaTime.getMinutes().toString().padStart(2,'0');
-      etaDisplay.innerText = `${hrs}:${mins}`;
+    const localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+    const startButton = document.getElementById('startCall');
+    const answerButton = document.getElementById('answerCall');
+
+    let localStream, pc;
+    const callDoc = doc(collection(db, "calls")); 
+
+    async function initMedia() {
+      localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      localVideo.srcObject = localStream;
     }
-  }
 
-  prevLatLng = currentLatLng;
-}
+    function createPeerConnection() {
+      pc = new RTCPeerConnection();
+      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+      pc.ontrack = event => remoteVideo.srcObject = event.streams[0];
+    }
 
-function speakBangla(text){
-  const msg = new SpeechSynthesisUtterance(text);
-  msg.lang = "bn-BD";
-  msg.rate = 0.9;
-  msg.pitch = 1;
-  window.speechSynthesis.speak(msg);
-}
+    startButton.onclick = async () => {
+      createPeerConnection();
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await setDoc(callDoc, { offer: { type: offer.type, sdp: offer.sdp } });
 
-// ✅ Set destination + find shortest route
-function setDestination(){
-  alert("🗺 ম্যাপে যেখানে যেতে চাও সেখানে ক্লিক করো!");
-  map.once('click', function(e){
-    destination = e.latlng;
-    if(routeControl) map.removeControl(routeControl);
-    routeControl = L.Routing.control({
-      waypoints: [carMarker.getLatLng(), destination],
-      router: L.Routing.osrmv1({serviceUrl: 'https://router.project-osrm.org/route/v1'}),
-      routeWhileDragging: false,
-      lineOptions: {
-        styles: [{color:'#1e88e5',opacity:0.8,weight:5}]
-      },
-      show: false,
-      createMarker: ()=>null
-    }).addTo(map);
-  });
-}
-</script>
+      onSnapshot(callDoc, snapshot => {
+        const data = snapshot.data();
+        if (!pc.currentRemoteDescription && data?.answer) {
+          pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+        }
+      });
+    };
+
+    answerButton.onclick = async () => {
+      createPeerConnection();
+      const callData = (await getDoc(callDoc)).data();
+      const offer = callData.offer;
+
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      await setDoc(callDoc, { answer: { type: answer.type, sdp: answer.sdp } }, { merge: true });
+    };
+
+    initMedia();
+  </script>
 </body>
 </html>
-
-
