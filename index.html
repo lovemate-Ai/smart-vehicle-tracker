@@ -1,110 +1,36 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Responsive Video Call App</title>
+  <title>Video Call</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    /* Basic Reset */
-    * { margin: 0; padding: 0; box-sizing: border-box; font-family: Arial, sans-serif; }
-
-    body {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: flex-start;
-      min-height: 100vh;
-      background: linear-gradient(135deg, #667eea, #764ba2);
-      color: #fff;
-      padding: 20px;
-    }
-
-    h1 {
-      margin-bottom: 20px;
-      text-align: center;
-      font-size: 2rem;
-    }
-
-    /* Video Container */
-    .video-container {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      gap: 15px;
-      width: 100%;
-      max-width: 900px;
-      margin-bottom: 20px;
-    }
-
-    video {
-      width: 100%;
-      max-width: 450px;
-      border-radius: 15px;
-      box-shadow: 0 5px 20px rgba(0,0,0,0.5);
-    }
-
-    /* Buttons */
-    .controls {
-      display: flex;
-      gap: 15px;
-      flex-wrap: wrap;
-      justify-content: center;
-    }
-
-    button {
-      padding: 12px 25px;
-      border: none;
-      border-radius: 10px;
-      background: #ff7e5f;
-      color: #fff;
-      font-size: 1rem;
-      cursor: pointer;
-      transition: transform 0.2s, background 0.3s;
-    }
-
-    button:hover {
-      background: #feb47b;
-      transform: translateY(-2px);
-    }
-
-    /* Responsive */
-    @media (max-width: 600px) {
-      video { max-width: 90%; }
-      button { width: 45%; font-size: 0.9rem; }
-    }
+    body { display:flex; flex-direction:column; align-items:center; font-family:Arial; }
+    video { width:45%; border-radius:10px; margin:5px; }
+    button { padding:10px 20px; margin:5px; cursor:pointer; }
+    @media(max-width:600px){ video{width:90%;} }
   </style>
 </head>
 <body>
-  <h1>Responsive Video Call App</h1>
-
-  <div class="video-container">
-    <video id="localVideo" autoplay playsinline muted></video>
-    <video id="remoteVideo" autoplay playsinline></video>
-  </div>
-
-  <div class="controls">
+  <h2>Video Call Demo</h2>
+  <video id="localVideo" autoplay muted></video>
+  <video id="remoteVideo" autoplay></video>
+  <div>
     <button id="startCall">Start Call</button>
     <button id="answerCall">Answer Call</button>
   </div>
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.17.0/firebase-app.js";
-    import { getFirestore, collection, doc, setDoc, onSnapshot, getDoc } from "https://www.gstatic.com/firebasejs/10.17.0/firebase-firestore.js";
+    import { getFirestore, collection, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.17.0/firebase-firestore.js";
 
+    // Firebase config
     const firebaseConfig = {
-
   apiKey: "AIzaSyCNNNQqwowO4OuxW2yjKvMpI-edMolKMy0",
-
   authDomain: "smart-veichle-tracker.firebaseapp.com",
-
   projectId: "smart-veichle-tracker",
-
   storageBucket: "smart-veichle-tracker.firebasestorage.app",
-
   messagingSenderId: "384592713965",
-
   appId: "1:384592713965:web:5a530662a268c4096594e4"
-
 };
 
     const app = initializeApp(firebaseConfig);
@@ -115,30 +41,50 @@
     const startButton = document.getElementById('startCall');
     const answerButton = document.getElementById('answerCall');
 
-    let localStream, pc;
+    let localStream;
+    let pc;
     const callDoc = doc(collection(db, "calls")); 
 
+    const servers = {
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        // প্রোডাকশনে TURN সার্ভার ব্যবহার করুন
+      ]
+    };
+
     async function initMedia() {
-      localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      localStream = await navigator.mediaDevices.getUserMedia({ video:true, audio:true });
       localVideo.srcObject = localStream;
     }
 
     function createPeerConnection() {
-      pc = new RTCPeerConnection();
+      pc = new RTCPeerConnection(servers);
       localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
       pc.ontrack = event => remoteVideo.srcObject = event.streams[0];
+
+      // ICE candidates send
+      pc.onicecandidate = event => {
+        if(event.candidate){
+          const cand = event.candidate.toJSON();
+          setDoc(callDoc, { iceCandidates: [...(callDoc.iceCandidates||[]), cand] }, { merge:true });
+        }
+      };
     }
 
     startButton.onclick = async () => {
       createPeerConnection();
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      await setDoc(callDoc, { offer: { type: offer.type, sdp: offer.sdp } });
+      await setDoc(callDoc, { offer: offer });
 
+      // Listen for answer & ICE candidates
       onSnapshot(callDoc, snapshot => {
         const data = snapshot.data();
-        if (!pc.currentRemoteDescription && data?.answer) {
-          pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+        if(data?.answer && !pc.currentRemoteDescription){
+          pc.setRemoteDescription(data.answer);
+        }
+        if(data?.iceCandidates){
+          data.iceCandidates.forEach(c => pc.addIceCandidate(c));
         }
       });
     };
@@ -146,15 +92,14 @@
     answerButton.onclick = async () => {
       createPeerConnection();
       const callData = (await getDoc(callDoc)).data();
-      const offer = callData.offer;
-
-      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      await pc.setRemoteDescription(callData.offer);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      await setDoc(callDoc, { answer: { type: answer.type, sdp: answer.sdp } }, { merge: true });
+      await setDoc(callDoc, { answer: answer }, { merge:true });
     };
 
     initMedia();
   </script>
 </body>
 </html>
+
